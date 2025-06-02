@@ -356,7 +356,7 @@ pub(crate) fn predicate<'vir>(
                     .1,
             );
 
-            builder.get_unsafe_cells = Some(
+            /*builder.get_unsafe_cells = Some(
                 builder
                     .mk_function(
                         "get_all_UnsafeCells", 
@@ -369,7 +369,7 @@ pub(crate) fn predicate<'vir>(
                         &[], 
                         Some(vir::expr!{ Set([&TypeData::Ref]()) })
                     )
-            );
+            );*/
 
             /*
             // lifetime projection predicates
