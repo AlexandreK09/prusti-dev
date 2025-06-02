@@ -137,6 +137,7 @@ pub enum TypeData<'vir> {
     Ref, // TODO: typed references ?
     Perm,
     Predicate, // The type of a predicate application
+    Set(#[serde(with = "crate::serde::serde_ref")] &'vir TypeData<'vir>),
     Unsupported(UnsupportedType<'vir>),
 }
 
@@ -235,3 +236,4 @@ pub type TriggerData<'vir> = crate::gendata::TriggerGenData<'vir, !, !>;
 pub type UnOpData<'vir> = crate::gendata::UnOpGenData<'vir, !, !>;
 pub type UnfoldingData<'vir> = crate::gendata::UnfoldingGenData<'vir, !, !>;
 pub type WandData<'vir> = crate::gendata::WandGenData<'vir, !, !>;
+pub type SetLiteralData<'vir> = crate::gendata::SetLiteralGenData<'vir, !, !>;

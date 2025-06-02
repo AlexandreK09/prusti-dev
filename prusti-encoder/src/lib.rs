@@ -148,6 +148,8 @@ pub fn test_entrypoint<'tcx>(
         program_functions.push(output.unreachable_to_snap);
         viper_code.push_str(&format!("{:?}\n", output.function_snap));
         program_functions.push(output.function_snap);
+        viper_code.push_str(&format!("{:?}\n", output.get_unsafe_cells));
+        program_functions.push(output.get_unsafe_cells);
         for pred in output.predicates {
             viper_code.push_str(&format!("{:?}\n", pred));
             program_predicates.push(pred);

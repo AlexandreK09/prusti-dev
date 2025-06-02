@@ -157,6 +157,11 @@ cfg_if! {
                 ExprKindGenData::UnOp(UnOpGenData { expr, .. }) => {
                     check_expr_bindings(m, *expr);
                 },
+                ExprKindGenData::SetLiteral(SetLiteralGenData{values, .. }) => {
+                    for value in values.iter() {
+                        check_expr_bindings(m, value);
+                    }
+                },
                 ExprKindGenData::Ternary(TernaryGenData { cond, then, else_}) => {
                     check_expr_bindings(m, *cond);
                     check_expr_bindings(m, *then);
@@ -448,6 +453,17 @@ impl<'tcx> VirCtxt<'tcx> {
 
     pub fn mk_todo_expr<'vir, Curr, Next>(&'vir self, msg: &'vir str) -> ExprGen<'vir, Curr, Next> {
         self.alloc(ExprGenData::new(self.alloc(ExprKindGenData::Todo(msg))))
+    }
+
+    pub fn mk_ty_set<'vir>(&'vir self, elem_ty: Type<'vir>) -> Type<'vir> {
+        self.alloc(TypeData::Set(elem_ty))
+    }
+
+    pub fn mk_set_literal_expr<'vir, Curr, Next>(&'vir self, values: &'vir [&'vir ExprGenData<'vir, Curr, Next>], elem_ty: Type<'vir>) -> ExprGen<'vir, Curr, Next> {
+        self.alloc(ExprGenData::new(self.alloc(ExprKindGenData::SetLiteral(self.alloc(SetLiteralGenData { 
+            values, 
+            ty: self.mk_ty_set(elem_ty) 
+        })))))
     }
 
     pub const fn mk_bool<'vir, const VALUE: bool>(&'vir self) -> Expr<'vir> {

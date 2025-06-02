@@ -331,6 +331,7 @@ impl<'vir, 'v> ToViper<'vir, 'v> for vir::Expr<'vir> {
             vir::ExprKindData::Result(ty) => ctx
                 .ast
                 .result_with_pos(ty.to_viper_no_pos(ctx), ctx.span_to_pos(self.span)),
+            vir::ExprKindData::SetLiteral(v) => v.to_viper_with_span(ctx, self.span),
             vir::ExprKindData::Ternary(v) => v.to_viper_with_span(ctx, self.span),
             vir::ExprKindData::Unfolding(v) => v.to_viper_with_span(ctx, self.span),
             vir::ExprKindData::UnOp(v) => v.to_viper_with_span(ctx, self.span),
@@ -779,6 +780,19 @@ impl<'vir, 'v> ToViperVec<'vir, 'v> for vir::TerminatorStmt<'vir> {
     }
 }
 
+impl<'vir, 'v> ToViper<'vir, 'v> for vir::SetLiteral<'vir> {
+    type Output = viper::Expr<'v>;
+    fn to_viper(&self, ctx: &ToViperContext<'vir, 'v>, _pos: Position) -> Self::Output {
+        ctx.ast.explicit_set(
+            &self
+                .values
+                .iter()
+                .map(|v| v.to_viper_no_pos(ctx))
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
 impl<'vir, 'v> ToViper<'vir, 'v> for vir::Ternary<'vir> {
     type Output = viper::Expr<'v>;
     // `pos` coming from the parent `Expr` is used
@@ -808,7 +822,7 @@ impl<'vir, 'v> ToViper<'vir, 'v> for vir::Trigger<'vir> {
 
 impl<'vir, 'v> ToViper<'vir, 'v> for vir::Type<'vir> {
     type Output = viper::Type<'v>;
-    fn to_viper(&self, ctx: &ToViperContext<'vir, 'v>, _pos: Position) -> Self::Output {
+    fn to_viper(&self, ctx: &ToViperContext<'vir, 'v>, pos: Position) -> Self::Output {
         match self {
             vir::TypeData::Int => ctx.ast.int_type(),
             vir::TypeData::Bool => ctx.ast.bool_type(),
@@ -842,6 +856,7 @@ impl<'vir, 'v> ToViper<'vir, 'v> for vir::Type<'vir> {
             vir::TypeData::Perm => ctx.ast.perm_type(),
             //vir::TypeData::Predicate, // The type of a predicate application
             //vir::TypeData::Unsupported(UnsupportedType<'vir>)
+            vir::TypeData::Set(t) => ctx.ast.set_type(t.to_viper(ctx, pos)),
             other => unimplemented!("{:?}", other),
         }
     }

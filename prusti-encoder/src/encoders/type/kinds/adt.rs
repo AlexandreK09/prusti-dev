@@ -15,7 +15,9 @@ use crate::encoders::{
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
-use vir::ToKnownArity;
+use vir::{ToKnownArity, TypeData, UnsupportedType};
+
+use super::structlike;
 
 pub(crate) fn domain<'vir>(
     task_key: <DomainEnc as TaskEncoder>::TaskKey<'vir>,
@@ -204,7 +206,7 @@ pub(crate) fn predicate<'vir>(
         unreachable!();
     };
 
-    let snap_type = snap.snapshot;
+    let snap_type  = snap.snapshot;
 
     let snap_self = builder.vcx.mk_local("self", snap_type);
     let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
@@ -260,6 +262,29 @@ pub(crate) fn predicate<'vir>(
                 }),
                 None,
             ))
+        }
+        ty::AdtKind::Struct if adt.is_unsafe_cell() => {
+
+            let ref_self = builder.vcx.mk_local("self", &vir::TypeData::Ref);
+            let ref_self_decl = builder.vcx.mk_local_decl_local(ref_self);
+
+            let self_pred = super::opaque::predicate(snap, generic_decls, generic_exprs, builder);
+
+            let args = &[ref_self_decl]
+                .into_iter()
+                .chain(generic_decls.iter().cloned())
+                .collect::<Vec<_>>();
+
+            builder.get_unsafe_cells = Some(builder.mk_function(
+                "get_all_UnsafeCells", 
+                &args,
+                builder.vcx.mk_ty_set(&TypeData::Ref),
+                &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }],
+                &[],
+                Some(vir::expr! { Set([&TypeData::Ref](ref_self)) }),
+            ));
+
+            Ok((PredicateEncData::Trusted, None))
         }
         ty::AdtKind::Struct => {
             let snap_data = snap.specifics.expect_structlike();
@@ -329,6 +354,21 @@ pub(crate) fn predicate<'vir>(
                         Some(snap_expr),
                     )
                     .1,
+            );
+
+            builder.get_unsafe_cells = Some(
+                builder
+                    .mk_function(
+                        "get_all_UnsafeCells", 
+                        &[ref_self_decl]
+                            .into_iter()
+                            .chain(generic_decls.iter().cloned())
+                            .collect::<Vec<_>>(),
+                        builder.vcx.mk_ty_set(&TypeData::Ref), 
+                        &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }], 
+                        &[], 
+                        Some(vir::expr!{ Set([&TypeData::Ref]()) })
+                    )
             );
 
             /*

@@ -429,6 +429,10 @@ macro_rules! expr {
             Some(vcx!().mk_wildcard()),
         )
     )); } };
+    (@expr($output:ident); Set( [ $outer:expr ]( $($args:tt)* ) ) ) => { { $output.push(vcx!().mk_set_literal_expr(
+        vcx!().alloc_slice($crate::expr!(@expr_list; $($args)*).as_slice()),
+        $outer,
+    )); } };
     (@expr($output:ident); [ $outer:expr ]( ) ) => { { $output.push($outer.expr_apply(
         vcx!(),
         &[],
