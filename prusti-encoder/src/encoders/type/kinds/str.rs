@@ -74,6 +74,22 @@ pub(crate) fn predicate<'vir>(
             .1,
     );
 
+    builder.get_unsafe_cells = Some(
+        builder
+            .mk_function(
+                "get_all_UnsafeCells", 
+                &[ref_self_decl], 
+                builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
+                &[vir::expr! { acc_wildcard([self_pred](ref_self)) }], 
+                &[], 
+                Some(
+                    vir::expr! {
+                        Set([&vir::TypeData::Ref]())
+                    }
+                )
+            )
+    );
+
     Ok(PredicateEncData::StructLike(PredicateEncDataStruct {
         snap_data,
         ref_to_field_refs: builder.vcx.alloc_slice(&field_accessors),
