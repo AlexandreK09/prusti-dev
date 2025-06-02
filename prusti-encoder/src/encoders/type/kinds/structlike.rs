@@ -173,6 +173,7 @@ pub(crate) fn predicate<'vir>(
         Vec<FunctionIdent<'vir, UnknownArity<'vir>>>,
         PredicateIdent<'vir, UnknownArity<'vir>>,
         vir::Expr<'vir>,
+        vir::Expr<'vir>
     ),
     EncodeFullError<'vir, PredicateEnc>,
 > {
@@ -266,6 +267,32 @@ pub(crate) fn predicate<'vir>(
     let variant_snap_expr = vir::expr! {
         unfolding_wildcard ([pred_owned](ref_self, ..[generic_exprs])) in ([variant_field_snaps_to_snap](..[snap_args]))
     };
+
+    let get_unsafe_cells_expr  = fields
+        .iter()
+        .zip(&field_accessors)
+        .map(|(field, accessor)| {
+            field.ref_to_get_unsafe_cells(
+                builder.vcx, 
+                accessor.apply(
+                    builder.vcx,
+                    &[ref_self_ex]
+                        .into_iter()
+                        .chain(generic_exprs.iter().cloned())
+                        .collect::<Vec<_>>(),
+                )
+            )
+        })
+        .reduce(|lhs, rhs|
+            builder.vcx.mk_bin_op_expr(vir::BinOpKind::SetUnion, lhs, rhs)
+        )
+        .map(|e| 
+            vir::expr! {
+                unfolding_wildcard ([pred_owned](ref_self, ..[generic_exprs])) in (e) 
+            }
+        )
+        .unwrap_or(vir::expr! { Set([&vir::TypeData::Ref]()) });
+
     /*
     let pred_owned_expr = vir::expr! {
         (([discr_ty_out.ref_to_snap(builder.vcx, fdisc_func.apply(builder.vcx, &[ref_self_ex]))])
@@ -361,5 +388,5 @@ pub(crate) fn predicate<'vir>(
             .collect::<Vec<_>>()),
     }))
     */
-    Ok((field_accessors, pred_owned, variant_snap_expr))
+    Ok((field_accessors, pred_owned, variant_snap_expr, get_unsafe_cells_expr))
 }

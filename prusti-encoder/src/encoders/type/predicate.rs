@@ -451,9 +451,23 @@ impl TaskEncoder for PredicateEnc {
                     ])),
                     return_type
                 );
+                let self_local = vcx.mk_local_decl("self", &TypeData::Ref);
+                let self_local_ex = vcx.mk_local_ex("self", &TypeData::Ref);
+                let t_local = vcx.mk_local_decl("t", generic_output_ref.type_snapshot);
+                let t_local_ex = vcx.mk_local_ex("t", generic_output_ref.type_snapshot);
+                let self_pred = generic_output_ref.ref_to_pred;
+                let args = vcx.alloc_slice(&[self_local, t_local]);
+
+                let pred_app = vcx.mk_predicate_app_expr(self_pred.apply(vcx, [self_local_ex, t_local_ex], Some(vcx.mk_wildcard())));
                 (
                     ident,
-                    vcx.mk_function(name, &[], return_type, &[], &[], None)
+                    vcx.mk_function(
+                        name, 
+                        args, 
+                        return_type, 
+                        vcx.alloc_slice(&[pred_app]), 
+                        &[], 
+                        None)
                 )
             });
             deps.emit_output_ref(

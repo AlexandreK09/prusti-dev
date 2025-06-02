@@ -226,7 +226,7 @@ pub(crate) fn predicate<'vir>(
             //    .map(|f| deps.require_ref::<RustTyPredicatesEnc>(f.ty(builder.vcx.tcx(), params)).unwrap())
             //    .collect::<Vec<_>>();
 
-            let (field_accessors, self_pred, snap_expr) = super::structlike::predicate(
+            let (field_accessors, self_pred, snap_expr, _) = super::structlike::predicate(
                 "",
                 &[deps.require_ref::<RustTyPredicatesEnc>(params[0].expect_ty())?],
                 task_key,
@@ -327,7 +327,7 @@ pub(crate) fn predicate<'vir>(
                 })
                 .collect::<Vec<_>>();
 
-            let (field_accessors, self_pred, snap_expr) = super::structlike::predicate(
+            let (field_accessors, self_pred, snap_expr, get_unsafe_cells_expr) = super::structlike::predicate(
                 "",
                 &fields,
                 task_key,
@@ -356,7 +356,7 @@ pub(crate) fn predicate<'vir>(
                     .1,
             );
 
-            /*builder.get_unsafe_cells = Some(
+            builder.get_unsafe_cells = Some(
                 builder
                     .mk_function(
                         "get_all_UnsafeCells", 
@@ -367,9 +367,9 @@ pub(crate) fn predicate<'vir>(
                         builder.vcx.mk_ty_set(&TypeData::Ref), 
                         &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }], 
                         &[], 
-                        Some(vir::expr!{ Set([&TypeData::Ref]()) })
+                        Some(get_unsafe_cells_expr)
                     )
-            );*/
+            );
 
             /*
             // lifetime projection predicates
@@ -449,6 +449,7 @@ pub(crate) fn predicate<'vir>(
                         field_accessors,
                         variant_pred,
                         variant_snap_expr,
+                        _
                     ) = super::structlike::predicate(
                         &format!("{var_idx_num}_"),
                         &fields,

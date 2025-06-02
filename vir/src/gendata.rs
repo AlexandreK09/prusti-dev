@@ -29,7 +29,7 @@ impl<'vir, Curr, Next> BinOpGenData<'vir, Curr, Next> {
             | BinOpKind::CmpGe
             | BinOpKind::CmpLe => &TypeData::Bool,
             BinOpKind::And | BinOpKind::Or | BinOpKind::Implies => &TypeData::Bool,
-            BinOpKind::Add | BinOpKind::Sub | BinOpKind::Mul | BinOpKind::Div | BinOpKind::Mod => {
+            BinOpKind::Add | BinOpKind::Sub | BinOpKind::Mul | BinOpKind::Div | BinOpKind::Mod | BinOpKind::SetUnion => {
                 self.lhs.ty()
             }
             BinOpKind::DivRational => &TypeData::Perm,

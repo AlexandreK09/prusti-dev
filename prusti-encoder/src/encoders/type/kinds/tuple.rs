@@ -124,7 +124,7 @@ pub(crate) fn predicate<'vir>(
         .map(|ty| deps.require_ref::<RustTyPredicatesEnc>(ty))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let (field_accessors, self_pred, snap_expr) = super::structlike::predicate(
+    let (field_accessors, self_pred, snap_expr, _) = super::structlike::predicate(
         "",
         &fields,
         task_key,

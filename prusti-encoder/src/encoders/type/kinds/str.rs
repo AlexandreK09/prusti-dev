@@ -45,7 +45,7 @@ pub(crate) fn predicate<'vir>(
     let ref_self_decl = builder.vcx.mk_local_decl_local(ref_self);
     //let ref_self_ex = builder.vcx.mk_local_ex_local(ref_self);
 
-    let (field_accessors, self_pred, snap_expr) = super::structlike::predicate(
+    let (field_accessors, self_pred, snap_expr, _) = super::structlike::predicate(
         "",
         &[],
         task_key,

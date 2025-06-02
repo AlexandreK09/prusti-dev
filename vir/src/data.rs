@@ -62,6 +62,7 @@ pub enum BinOpKind {
     Div,
     DivRational,
     Mod,
+    SetUnion
     // ...
 }
 impl From<mir::BinOp> for BinOpKind {
