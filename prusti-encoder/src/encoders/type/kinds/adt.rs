@@ -226,7 +226,7 @@ pub(crate) fn predicate<'vir>(
             //    .map(|f| deps.require_ref::<RustTyPredicatesEnc>(f.ty(builder.vcx.tcx(), params)).unwrap())
             //    .collect::<Vec<_>>();
 
-            let (field_accessors, self_pred, snap_expr, _) = super::structlike::predicate(
+            let (field_accessors, self_pred, snap_expr, get_unsafe_cells_expr) = super::structlike::predicate(
                 "",
                 &[deps.require_ref::<RustTyPredicatesEnc>(params[0].expect_ty())?],
                 task_key,
@@ -253,6 +253,21 @@ pub(crate) fn predicate<'vir>(
                         Some(snap_expr),
                     )
                     .1,
+            );
+
+            builder.get_unsafe_cells = Some(
+                builder
+                    .mk_function(
+                        "get_all_UnsafeCells", 
+                        &[ref_self_decl]
+                            .into_iter()
+                            .chain(generic_decls.iter().cloned())
+                            .collect::<Vec<_>>(),
+                        builder.vcx.mk_ty_set(&TypeData::Ref), 
+                        &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }], 
+                        &[], 
+                        Some(get_unsafe_cells_expr)
+                    )
             );
 
             Ok((
@@ -449,7 +464,7 @@ pub(crate) fn predicate<'vir>(
                         field_accessors,
                         variant_pred,
                         variant_snap_expr,
-                        _
+                        variant_get_unsafe_cells_expr
                     ) = super::structlike::predicate(
                         &format!("{var_idx_num}_"),
                         &fields,
@@ -470,6 +485,7 @@ pub(crate) fn predicate<'vir>(
                     Ok((
                         variant_snap_expr,
                         variant_pred_expr,
+                        variant_get_unsafe_cells_expr,
                         PredicateEncDataVariant {
                             predicate: variant_pred,
                             vid: var_idx,
@@ -494,7 +510,7 @@ pub(crate) fn predicate<'vir>(
                 Some(vir::expr! {
                     ([discr_ty_out.ref_to_pred(builder.vcx, fdisc_func.apply(builder.vcx, &[ref_self_ex]), None)])
                     && (([builder.vcx.mk_disj(&variants.iter()
-                        .map(|variant| vir::expr! { ([discr_app]) == ([variant.2.discr]) })
+                        .map(|variant| vir::expr! { ([discr_app]) == ([variant.3.discr]) })
                         .collect::<Vec<_>>())])
                     && ([builder.vcx.mk_conj(&variants.iter()
                         .map(|v| v.1)
@@ -514,12 +530,39 @@ pub(crate) fn predicate<'vir>(
                 Some(vir::expr! {
                     unfolding_wildcard ([self_pred](ref_self, ..[generic_exprs])) in ([variants.iter()
                         .fold(builder.unreachable_to_snap.unwrap().0.apply(builder.vcx, []), |else_, variant| builder.vcx.mk_ternary_expr(
-                            vir::expr! { ([discr_app]) == ([variant.2.discr]) },
+                            vir::expr! { ([discr_app]) == ([variant.3.discr]) },
                             variant.0,
                             else_,
                         ))])
                 }),
             ).1);
+
+            builder.get_unsafe_cells = Some(
+                builder.mk_function(
+                    "get_all_UnsafeCells", 
+                    &[ref_self_decl].into_iter()
+                        .chain(generic_decls.iter().cloned())
+                        .collect::<Vec<_>>(), 
+                    builder.vcx.mk_ty_set(&TypeData::Ref), 
+                    &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }], 
+                    &[],
+                    Some(
+                        vir::expr! {
+                            unfolding_wildcard ([self_pred](ref_self, ..[generic_exprs])) in ([
+                                variants.iter()
+                                .fold(
+                                    vir::expr! { Set([&TypeData::Ref]()) },
+                                    |else_, variant| builder.vcx.mk_ternary_expr(
+                                        vir::expr! { ([discr_app]) == ([variant.3.discr]) },
+                                        variant.2,
+                                        else_,
+                                    )
+                                )
+                            ])
+                        }
+                    )    
+                )
+            );
 
             Ok((
                 PredicateEncData::EnumLike(Some(PredicateEncDataEnum {
@@ -528,7 +571,7 @@ pub(crate) fn predicate<'vir>(
                     //discr_bounds: (),
                     variants: builder
                         .vcx
-                        .alloc_slice(&variants.iter().map(|v| v.2).collect::<Vec<_>>()),
+                        .alloc_slice(&variants.iter().map(|v| v.3).collect::<Vec<_>>()),
                 })),
                 None,
             ))
