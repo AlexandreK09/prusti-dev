@@ -161,6 +161,7 @@ pub fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     prefix: &str,
     fields: &[RustTyPredicatesEncOutputRef<'vir>],
+    fields_snap: &'vir [FieldFunctions<'vir>],
     task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: &SnapshotEncOutput<'vir>,
     variant_field_snaps_to_snap: FunctionIdent<'vir, UnknownArity<'vir>>,
@@ -268,10 +269,14 @@ pub(crate) fn predicate<'vir>(
         unfolding_wildcard ([pred_owned](ref_self, ..[generic_exprs])) in ([variant_field_snaps_to_snap](..[snap_args]))
     };
 
+    let var_snap = builder.vcx.mk_local("snap", snap_type);
+    let var_snap_ex = builder.vcx.mk_local_ex_local(var_snap);
+
     let get_unsafe_cells_expr  = fields
         .iter()
         .zip(&field_accessors)
-        .map(|(field, accessor)| {
+        .zip(fields_snap.iter())
+        .map(|((field, accessor), field_snap)| {
             field.ref_to_get_unsafe_cells(
                 builder.vcx, 
                 accessor.apply(
@@ -280,17 +285,18 @@ pub(crate) fn predicate<'vir>(
                         .into_iter()
                         .chain(generic_exprs.iter().cloned())
                         .collect::<Vec<_>>(),
-                )
+                ),
+                field_snap.read.apply(builder.vcx, [var_snap_ex]),
             )
         })
         .reduce(|lhs, rhs|
             builder.vcx.mk_bin_op_expr(vir::BinOpKind::SetUnion, lhs, rhs)
         )
-        .map(|e| 
+        /*.map(|e| 
             vir::expr! {
                 unfolding_wildcard ([pred_owned](ref_self, ..[generic_exprs])) in (e) 
             }
-        )
+        )*/
         .unwrap_or(vir::expr! { Set([&vir::TypeData::Ref]()) });
 
     /*

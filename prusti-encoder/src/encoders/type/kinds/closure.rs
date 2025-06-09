@@ -97,6 +97,7 @@ pub(crate) fn predicate<'vir>(
     let (field_accessors, self_pred, snap_expr, _) = super::structlike::predicate(
         "",
         &fields,
+        snap_data.field_access,
         task_key,
         &snap,
         snap_data.field_snaps_to_snap,

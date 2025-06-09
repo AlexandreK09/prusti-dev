@@ -124,9 +124,10 @@ pub(crate) fn predicate<'vir>(
         .map(|ty| deps.require_ref::<RustTyPredicatesEnc>(ty))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let (field_accessors, self_pred, snap_expr, _) = super::structlike::predicate(
+    let (field_accessors, self_pred, snap_expr, get_unsafe_cells_expr) = super::structlike::predicate(
         "",
         &fields,
+        snap_data.field_access,
         task_key,
         &snap,
         snap_data.field_snaps_to_snap,
@@ -152,6 +153,21 @@ pub(crate) fn predicate<'vir>(
             )
             .1,
     );
+
+    /*builder.get_unsafe_cells = Some(
+        builder
+            .mk_function(
+                "get_all_UnsafeCells", 
+                &[ref_self_decl]
+                    .into_iter()
+                    .chain(generic_decls.iter().cloned())
+                    .collect::<Vec<_>>(),
+                builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
+                &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }], 
+                &[], 
+                Some(get_unsafe_cells_expr)
+            )
+    );*/
 
     Ok(PredicateEncData::StructLike(PredicateEncDataStruct {
         snap_data,

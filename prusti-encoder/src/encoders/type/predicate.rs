@@ -119,6 +119,20 @@ impl<'vir> PredicateEncOutputRef<'vir> {
         vcx.alloc_slice(&args)
     }
 
+    /// Constructs arguments for [`PredicateEncOutputRef::get_unsafe_cells`] . 
+    pub fn ref_to_args_get_unsafe_cells<'tcx>(
+        &self,
+        vcx: &'vir vir::VirCtxt<'tcx>,
+        instantiated_ty: LiftedTy<'vir, LiftedGeneric<'vir>>,
+        self_ref: vir::Expr<'vir>,
+        snap: vir::Expr<'vir>,
+    ) -> &'vir [vir::Expr<'vir>] {
+        assert!(self_ref.ty() == &TypeData::Ref);
+        let mut args = vec![self_ref, snap];
+        args.extend(instantiated_ty.arg_exprs(vcx));
+        vcx.alloc_slice(&args)
+    }
+
     #[track_caller]
     pub fn expect_prim(&self) -> DomainDataPrim<'vir> {
         match self.specifics {
@@ -429,6 +443,9 @@ impl TaskEncoder for PredicateEnc {
         let snap = deps.require_local::<SnapshotEnc>(*task_key)?;
         let generic_output_ref = deps.require_ref::<GenericEnc>(())?;
 
+        //TODO move this to a more appropriate place
+        //deps.require_local::<GetUnsafeCellsEnc>(*task_key)?;
+
         if let TyKind::Param(..) = task_key.kind() {
             let method_assign = vir::with_vcx(|vcx| {
                 MethodIdent::new(
@@ -447,25 +464,22 @@ impl TaskEncoder for PredicateEnc {
                     vir::ViperIdent::new(name), 
                     UnknownArity::new(vcx.alloc_slice(&[
                         &TypeData::Ref,
+                        snap.snapshot,
                         generic_output_ref.type_snapshot,
                     ])),
                     return_type
                 );
                 let self_local = vcx.mk_local_decl("self", &TypeData::Ref);
-                let self_local_ex = vcx.mk_local_ex("self", &TypeData::Ref);
+                let snap_local = vcx.mk_local_decl("snap", snap.snapshot);
                 let t_local = vcx.mk_local_decl("t", generic_output_ref.type_snapshot);
-                let t_local_ex = vcx.mk_local_ex("t", generic_output_ref.type_snapshot);
-                let self_pred = generic_output_ref.ref_to_pred;
-                let args = vcx.alloc_slice(&[self_local, t_local]);
-
-                let pred_app = vcx.mk_predicate_app_expr(self_pred.apply(vcx, [self_local_ex, t_local_ex], Some(vcx.mk_wildcard())));
+                let args = vcx.alloc_slice(&[self_local, snap_local, t_local]);
                 (
                     ident,
                     vcx.mk_function(
                         name, 
                         args, 
                         return_type, 
-                        vcx.alloc_slice(&[pred_app]), 
+                        &[], 
                         &[], 
                         None)
                 )
@@ -518,6 +532,9 @@ impl TaskEncoder for PredicateEnc {
             let snap_type = snap.snapshot;
             let ref_self = vcx.mk_local("self", &vir::TypeData::Ref);
             let ref_self_decl = vcx.mk_local_decl_local(ref_self);
+
+            let snap_self = vcx.mk_local("snap", snap_type);
+            let snap_self_decl = vcx.mk_local_decl_local(snap_self);
 
             let generic_decls = snap.generics.iter().map(|g| g.decl()).collect::<Vec<_>>();
             let generic_exprs = snap
@@ -689,8 +706,19 @@ impl TaskEncoder for PredicateEnc {
             
             //TODO: remove this blocks once each type has the function get_allUnsafeCells
             if builder.get_unsafe_cells.is_none(){
+                let args = &[ref_self_decl, snap_self_decl]
+                            .into_iter()
+                            .chain(generic_decls.iter().cloned())
+                            .collect::<Vec<_>>();
                 builder.get_unsafe_cells = Some(
-                    builder.mk_function("get_all_UnsafeCells", &builder.vcx.alloc_slice(&[ref_self_decl]), builder.vcx.mk_ty_set(&TypeData::Ref), &[], &[], None)
+                    builder.mk_function(
+                        "get_all_UnsafeCells", 
+                        &args, 
+                        builder.vcx.mk_ty_set(&TypeData::Ref), 
+                        &[],
+                        &[], 
+                        None
+                    )
                 );
             }
 

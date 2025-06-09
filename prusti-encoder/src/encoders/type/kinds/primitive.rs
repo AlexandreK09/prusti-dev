@@ -79,6 +79,9 @@ pub(crate) fn predicate<'vir>(
     let ref_self = builder.vcx.mk_local("self", &vir::TypeData::Ref);
     let ref_self_decl = builder.vcx.mk_local_decl_local(ref_self);
 
+    let snap_self = builder.vcx.mk_local("snap", snap_type);
+    let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
+
     // fields
     let prim_field = builder.field("val", snap_type);
 
@@ -109,9 +112,9 @@ pub(crate) fn predicate<'vir>(
         builder
             .mk_function(
                 "get_all_UnsafeCells", 
-                &[ref_self_decl], 
+                &[ref_self_decl, snap_self_decl], 
                 builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
-                &[vir::expr! { acc_wildcard([self_pred](ref_self)) }], 
+                &[], 
                 &[], 
                 Some(
                     vir::expr! {

@@ -132,6 +132,19 @@ pub(crate) fn predicate<'vir>(
         }),
     );
 
+    builder.get_unsafe_cells = Some(
+        builder.mk_function(
+            "get_all_UnsafeCells", 
+            &[ref_self_decl].into_iter()
+            .chain(generic_decls.iter().cloned())
+            .collect::<Vec<_>>(), 
+            builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
+            &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }], 
+            &[],
+            None
+        )
+    );
+
     Ok((
         PredicateEncData::ImmRef(PredicateEncDataImmRef {
             deref_func: deref_func.to_known(),

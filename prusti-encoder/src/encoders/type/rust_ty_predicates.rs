@@ -104,16 +104,26 @@ impl<'vir> RustTyPredicatesEncOutputRef<'vir> {
     pub fn ref_to_get_unsafe_cells<'tcx>(
         &self,
         vcx: &'vir vir::VirCtxt<'tcx>,
-        self_ref: vir::Expr<'vir>
+        self_ref: vir::Expr<'vir>,
+        snap: vir::Expr<'vir>
     ) -> vir::Expr<'vir>{
-        self.generic_predicate.get_unsafe_cells.apply(vcx, self.ref_to_args(vcx, self_ref))
+        self.generic_predicate.get_unsafe_cells.apply(vcx, self.ref_to_args_get_unsafe_cells(vcx, self_ref, snap))
+    }
+
+    pub fn ref_to_args_get_unsafe_cells<'tcx>(
+        &self,
+        vcx: &'vir vir::VirCtxt<'tcx>,
+        self_ref: vir::Expr<'vir>,
+        snap: vir::Expr<'vir>
+    ) -> &'vir [vir::Expr<'vir>] {
+        self.generic_predicate.ref_to_args_get_unsafe_cells(vcx, self.ty, self_ref, snap)
     }
 
     /// Arguments to `ref_to_pred` and `ref_to_snap`.
     pub fn ref_to_args<'tcx>(
         &self,
         vcx: &'vir vir::VirCtxt<'tcx>,
-        self_ref: vir::Expr<'vir>,
+        self_ref: vir::Expr<'vir>
     ) -> &'vir [vir::Expr<'vir>] {
         self.generic_predicate.ref_to_args(vcx, self.ty, self_ref)
     }
