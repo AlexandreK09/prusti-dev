@@ -443,9 +443,6 @@ impl TaskEncoder for PredicateEnc {
         let snap = deps.require_local::<SnapshotEnc>(*task_key)?;
         let generic_output_ref = deps.require_ref::<GenericEnc>(())?;
 
-        //TODO move this to a more appropriate place
-        //deps.require_local::<GetUnsafeCellsEnc>(*task_key)?;
-
         if let TyKind::Param(..) = task_key.kind() {
             let method_assign = vir::with_vcx(|vcx| {
                 MethodIdent::new(
@@ -458,7 +455,7 @@ impl TaskEncoder for PredicateEnc {
                 )
             });
             let get_unsafe_cells = vir::with_vcx(|vcx| {
-                let name = "p_param_get_all_UnsafeCells";
+                let name = "p_Param_get_all_UnsafeCells";
                 let return_type = vcx.mk_ty_set(&TypeData::Ref);
                 let ident = vir::FunctionIdent::new(
                     vir::ViperIdent::new(name), 

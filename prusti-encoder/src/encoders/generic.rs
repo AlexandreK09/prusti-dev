@@ -1,7 +1,6 @@
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
 use vir::{
-    BinaryArity, CallableIdent, DomainIdent, DomainParamData, FunctionIdent, KnownArityAny,
-    NullaryArity, PredicateIdent, TypeData, UnaryArity, ViperIdent,
+    BinaryArity, CallableIdent, DomainIdent, DomainParamData, FunctionIdent, KnownArityAny, NullaryArity, PredicateIdent, TernaryArity, TypeData, UnaryArity, ViperIdent
 };
 
 pub struct GenericEnc;
@@ -21,6 +20,7 @@ pub struct GenericEncOutputRef<'vir> {
     pub unreachable_to_snap: FunctionIdent<'vir, NullaryArity<'vir>>,
     // pub domain_type_name: DomainIdent<'vir, KnownArityAny<'vir, DomainParamData<'vir>, 0>>,
     pub domain_param_name: DomainIdent<'vir, KnownArityAny<'vir, DomainParamData<'vir>, 0>>,
+    pub get_unsafe_cells: FunctionIdent<'vir, TernaryArity<'vir>>,
 }
 impl<'vir> task_encoder::OutputRefAny for GenericEncOutputRef<'vir> {}
 
@@ -78,6 +78,14 @@ impl TaskEncoder for GenericEnc {
             &TYP_DOMAIN,
         );
 
+        let get_unsafe_cells = vir::with_vcx(|vcx| 
+            FunctionIdent::new(
+            ViperIdent::new("p_Param_get_all_UnsafeCells"), 
+            TernaryArity::new(&[&TypeData::Ref, &SNAPSHOT_PARAM_DOMAIN, &TYP_DOMAIN]), 
+            vcx.mk_ty_set(&TypeData::Ref),
+            )
+        );
+
         let output_ref = GenericEncOutputRef {
             type_snapshot: &TYP_DOMAIN,
             param_snapshot: &SNAPSHOT_PARAM_DOMAIN,
@@ -87,6 +95,7 @@ impl TaskEncoder for GenericEnc {
             ref_to_snap,
             unreachable_to_snap,
             param_type_function,
+            get_unsafe_cells,
         };
 
         #[allow(clippy::unit_arg)]

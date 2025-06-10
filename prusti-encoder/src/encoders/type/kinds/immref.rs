@@ -132,16 +132,29 @@ pub(crate) fn predicate<'vir>(
         }),
     );
 
+    let snap_self = builder.vcx.mk_local("snap", snap_type);
+    let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
+    let snap_self_ex = builder.vcx.mk_local_ex_local(snap_self);
+
+    let deref_ref = snap_data.deref_access.apply(builder.vcx, [snap_self_ex]);
+    let deref_snap = snap_data.value_access.apply(builder.vcx, [snap_self_ex]);
+    let deref_type = generic.param_type_function.apply(builder.vcx, [deref_snap]);
+
     builder.get_unsafe_cells = Some(
         builder.mk_function(
             "get_all_UnsafeCells", 
-            &[ref_self_decl].into_iter()
+            &[ref_self_decl, snap_self_decl].into_iter()
             .chain(generic_decls.iter().cloned())
             .collect::<Vec<_>>(), 
             builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
-            &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }], 
+            &[], 
             &[],
-            None
+            Some(
+                generic.get_unsafe_cells.apply(
+                    builder.vcx, 
+                    [deref_ref, deref_snap, deref_type],
+                )
+            )
         )
     );
 

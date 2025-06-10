@@ -63,7 +63,7 @@ pub(crate) fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     _task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
-    _deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
+    deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     builder: &mut PredicateBuilder<'vir>,
 ) -> Result<
     (
@@ -83,6 +83,7 @@ pub(crate) fn predicate<'vir>(
     //let ref_self_ex = builder.vcx.mk_local_ex_local(ref_self);
 
     let snap_data = snap.specifics.expect_mutref();
+    let generic = deps.require_ref::<crate::encoders::GenericEnc>(())?;
 
     // fields
     let ref_field = builder.field("val", snap_type);
@@ -120,6 +121,30 @@ pub(crate) fn predicate<'vir>(
         Some(vir::expr! {
             unfolding_wildcard ([self_pred](ref_self)) in ([snap_data.deref_access]([ref_field](ref_self)))
         }),
+    );
+
+    let snap_self = builder.vcx.mk_local("snap", snap_type);
+    let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
+    let snap_self_ex = builder.vcx.mk_local_ex_local(snap_self);
+
+    let deref_ref = snap_data.deref_access.apply(builder.vcx, [snap_self_ex]);
+    let deref_snap = snap_data.value_access.apply(builder.vcx, [snap_self_ex]);
+    let deref_type = generic.param_type_function.apply(builder.vcx, [deref_snap]);
+
+    builder.get_unsafe_cells = Some(
+        builder.mk_function(
+            "get_all_UnsafeCells", 
+            &[ref_self_decl, snap_self_decl], 
+            builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
+            &[], 
+            &[],
+            Some(
+                generic.get_unsafe_cells.apply(
+                    builder.vcx, 
+                    [deref_ref, deref_snap, deref_type],
+                )
+            )
+        )
     );
 
     Ok((
