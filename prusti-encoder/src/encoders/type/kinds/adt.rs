@@ -549,6 +549,9 @@ pub(crate) fn predicate<'vir>(
 
             let snap_self = builder.vcx.mk_local("snap", snap_type);
             let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
+            let snap_self_ex = builder.vcx.mk_local_ex_local(snap_self);
+
+            let discr_app_snap = snap_data.snap_to_discr_snap.apply(builder.vcx, [snap_self_ex]);
 
             builder.get_unsafe_cells = Some(
                 builder.mk_function(
@@ -564,7 +567,7 @@ pub(crate) fn predicate<'vir>(
                         .fold(
                             vir::expr! { Set([&TypeData::Ref]()) },
                             |else_, variant| builder.vcx.mk_ternary_expr(
-                                vir::expr! { ([discr_app]) == ([variant.3.discr]) },
+                                vir::expr! { ([discr_app_snap]) == ([variant.3.discr]) },
                                 variant.2,
                                 else_,
                             )
