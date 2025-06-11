@@ -135,6 +135,10 @@ pub fn test_entrypoint<'tcx>(
     }
 
     header(&mut viper_code, "types");
+
+    let mut p_params_post_conditions = Vec::new();
+    let mut old_p_params_get_unsafe_cells = None; 
+
     for output in crate::encoders::PredicateEnc::all_outputs() {
         for field in output.fields {
             viper_code.push_str(&format!("{:?}", field));
@@ -148,14 +152,39 @@ pub fn test_entrypoint<'tcx>(
         program_functions.push(output.unreachable_to_snap);
         viper_code.push_str(&format!("{:?}\n", output.function_snap));
         program_functions.push(output.function_snap);
-        viper_code.push_str(&format!("{:?}\n", output.get_unsafe_cells));
-        program_functions.push(output.get_unsafe_cells);
+        if output.is_param{
+            old_p_params_get_unsafe_cells = Some(output.get_unsafe_cells);
+        }else{
+            viper_code.push_str(&format!("{:?}\n", output.get_unsafe_cells));
+            program_functions.push(output.get_unsafe_cells);
+        }
+        if let Some(post_condition) = output.p_param_get_unsafe_cells_post{
+            p_params_post_conditions.push(post_condition);
+        }
         for pred in output.predicates {
             viper_code.push_str(&format!("{:?}\n", pred));
             program_predicates.push(pred);
         }
         viper_code.push_str(&format!("{:?}\n", output.method_assign));
         program_methods.push(output.method_assign);
+    }
+
+    if let Some(old) = old_p_params_get_unsafe_cells{
+        let p_params_get_unsafe_cells = vir::with_vcx(|vcx|
+            {
+                vcx.mk_function(
+                    old.name, 
+                    old.args, 
+                    old.ret, 
+                    old.pres, 
+                    vcx.alloc_slice(&p_params_post_conditions), 
+                    None
+                )
+            }
+        );
+
+        viper_code.push_str(&format!("{:?}\n", p_params_get_unsafe_cells));
+        program_functions.push(p_params_get_unsafe_cells);
     }
 
     if std::env::var("LOCAL_TESTING").is_ok() {

@@ -4,10 +4,10 @@ use prusti_rustc_interface::{
 };
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
 use vir::{
-    BinaryArity, CallableIdent, FunctionIdent, MethodIdent, NullaryArity, PredicateIdent, TypeData, UnaryArity, UnknownArity, ViperIdent, VirCtxt
+    BinaryArity, CallableIdent, Expr, FunctionIdent, MethodIdent, NullaryArity, PredicateIdent, TypeData, UnaryArity, UnknownArity, ViperIdent, VirCtxt
 };
 
-use crate::encoders::GenericEnc;
+use crate::encoders::{lifted::{casters::{CastTypePure, CastersEnc, CastersEncOutputRef}, ty_constructor::TyConstructorEnc}, GenericEnc};
 
 use super::{
     domain::{DomainDataImmRef, DomainDataMutRef, DomainDataPrim, DomainDataStruct},
@@ -234,6 +234,7 @@ pub(crate) struct PredicateBuilder<'vir> {
         vir::Function<'vir>,
     )>,
     pub(crate) function_snap: Option<vir::Function<'vir>>,
+    pub p_param_get_unsafe_cells_post: Option<Expr<'vir>>
 }
 
 impl<'vir> PredicateBuilder<'vir> {
@@ -248,6 +249,7 @@ impl<'vir> PredicateBuilder<'vir> {
             unreachable_to_snap: None,
             get_unsafe_cells: None,
             function_snap: None,
+            p_param_get_unsafe_cells_post: None,
         }
     }
 
@@ -405,6 +407,8 @@ impl<'vir> PredicateBuilder<'vir> {
             get_unsafe_cells: self.get_unsafe_cells.unwrap().1,
             ref_to_field_refs: self.functions,
             method_assign: self.methods[0],
+            is_param: false,
+            p_param_get_unsafe_cells_post: self.p_param_get_unsafe_cells_post
         }
     }
 }
@@ -419,6 +423,8 @@ pub struct PredicateEncOutput<'vir> {
     pub get_unsafe_cells: vir::Function<'vir>,
     pub ref_to_field_refs: Vec<vir::Function<'vir>>,
     pub method_assign: vir::Method<'vir>,
+    pub is_param: bool,
+    pub p_param_get_unsafe_cells_post: Option<Expr<'vir>>
 }
 
 impl TaskEncoder for PredicateEnc {
@@ -443,6 +449,9 @@ impl TaskEncoder for PredicateEnc {
         let snap = deps.require_local::<SnapshotEnc>(*task_key)?;
         let generic_output_ref = deps.require_ref::<GenericEnc>(())?;
 
+        let casts = deps.require_ref::<CastersEnc::<CastTypePure>>(*task_key)?;
+        let type_constructor = deps.require_ref::<TyConstructorEnc>(*task_key)?;
+
         if let TyKind::Param(..) = task_key.kind() {
             let method_assign = vir::with_vcx(|vcx| {
                 MethodIdent::new(
@@ -466,17 +475,24 @@ impl TaskEncoder for PredicateEnc {
                     ])),
                     return_type
                 );
-                let self_local = vcx.mk_local_decl("self", &TypeData::Ref);
-                let snap_local = vcx.mk_local_decl("snap", snap.snapshot);
-                let t_local = vcx.mk_local_decl("t", generic_output_ref.type_snapshot);
-                let args = vcx.alloc_slice(&[self_local, snap_local, t_local]);
+                let self_decl = vcx.mk_local_decl("self", &TypeData::Ref);
+                let snap_local = vcx.mk_local("snap", snap.snapshot);
+                let snap_decl = vcx.mk_local_decl_local(snap_local);
+                let snap_ex = vcx.mk_local_ex_local(snap_local);
+                let t_local = vcx.mk_local("t", generic_output_ref.type_snapshot);
+                let t_decl = vcx.mk_local_decl_local(t_local);
+                let t_ex = vcx.mk_local_ex_local(t_local);
+                let args = vcx.alloc_slice(&[self_decl, snap_decl, t_decl]);
+
+                let snap_type = generic_output_ref.param_type_function.apply(vcx, [snap_ex]);
+                let precondition = vcx.mk_eq_expr(snap_type, t_ex);
                 (
                     ident,
                     vcx.mk_function(
                         name, 
                         args, 
                         return_type, 
-                        &[], 
+                        vcx.alloc_slice(&[precondition]), 
                         &[], 
                         None)
                 )
@@ -514,6 +530,8 @@ impl TaskEncoder for PredicateEnc {
                         get_unsafe_cells: get_unsafe_cells.1,
                         ref_to_field_refs: vec![],
                         method_assign,
+                        is_param: true,
+                        p_param_get_unsafe_cells_post: None,
                     },
                     (),
                 ))
@@ -717,6 +735,41 @@ impl TaskEncoder for PredicateEnc {
                         None
                     )
                 );
+            }
+
+            if let CastersEncOutputRef::Casters { make_concrete, .. } = casts{
+                let snap_ex: Expr = builder.vcx.mk_local_ex("snap", generic_output_ref.param_snapshot);
+                let t_expr: Expr = builder.vcx.mk_local_ex("t", generic_output_ref.type_snapshot);
+                let self_expr: Expr = builder.vcx.mk_local_ex("self", &TypeData::Ref);
+                let mut qvars =  Vec::new();
+                let mut qvars_ex = Vec::new();
+                for i in 0..generic_decls.len(){
+                    let var_local = builder.vcx.mk_local(vir::vir_format!(builder.vcx, "t{}", i), generic_output_ref.type_snapshot);
+                    let var_decl = builder.vcx.mk_local_decl_local(var_local);
+                    let var_ex = builder.vcx.mk_local_ex_local(var_local); 
+                    qvars.push(var_decl);
+                    qvars_ex.push(var_ex);
+                }
+                let concrete = make_concrete.apply(
+                    builder.vcx, 
+                    &[snap_ex].iter()
+                        .cloned()
+                        .chain(qvars_ex.iter().cloned())
+                        .collect::<Vec<_>>()
+                );
+                let type_instantiation = type_constructor.ty_constructor.apply(builder.vcx, &qvars_ex);
+                let condition = builder.vcx.mk_eq_expr(t_expr, type_instantiation);
+                let application = builder.get_unsafe_cells.unwrap().0.apply(
+                    builder.vcx, 
+                    &[self_expr, concrete].iter()
+                        .cloned()
+                        .chain(qvars_ex.iter().cloned())
+                        .collect::<Vec<_>>()
+                );
+                let conclusion = builder.vcx.mk_eq_expr(builder.vcx.mk_result(builder.vcx.mk_ty_set(&TypeData::Ref)), application);
+                let ternary = builder.vcx.mk_ternary_expr(condition, conclusion, builder.vcx.mk_bool_gen::<!,!,true>());
+                let postcondition = builder.vcx.mk_forall_expr(builder.vcx.alloc_slice(&qvars), &[], ternary);
+                builder.p_param_get_unsafe_cells_post = Some(postcondition);
             }
 
             deps.emit_output_ref(
