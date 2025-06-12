@@ -3,7 +3,7 @@ use crate::encoders::{
         DomainBuilder, DomainDataEnum, DomainDataStruct, DomainDataVariant, DomainEnc,
         DomainEncOutputRef, DomainEncSpecifics, FieldTy,
     },
-    lifted::ty::{EncodeGenericsAsParamTy, LiftedTyEnc},
+    lifted::{ty::{EncodeGenericsAsParamTy, LiftedTyEnc}, ty_constructor::TyConstructorEnc},
     predicate::{
         PredicateBuilder, PredicateEncData, PredicateEncDataEnum, PredicateEncDataStruct,
         PredicateEncDataVariant,
@@ -15,7 +15,7 @@ use crate::encoders::{
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
-use vir::{ToKnownArity, TypeData, UnsupportedType};
+use vir::{Expr, ToKnownArity, TypeData, UnsupportedType};
 
 use super::structlike;
 
@@ -256,20 +256,34 @@ pub(crate) fn predicate<'vir>(
                     .1,
             );
 
-            // builder.get_unsafe_cells = Some(
-            //     builder
-            //         .mk_function(
-            //             "get_all_UnsafeCells", 
-            //             &[ref_self_decl]
-            //                 .into_iter()
-            //                 .chain(generic_decls.iter().cloned())
-            //                 .collect::<Vec<_>>(),
-            //             builder.vcx.mk_ty_set(&TypeData::Ref), 
-            //             &[vir::expr! { acc_wildcard([self_pred](ref_self, ..[generic_exprs])) }], 
-            //             &[], 
-            //             Some(get_unsafe_cells_expr)
-            //         )
-            // );
+            let domain_enc_output_ref = deps.require_ref::<DomainEnc>(task_key)?;
+            let ty_constructor_enc_output_ref = deps.require_ref::<TyConstructorEnc>(task_key)?;
+
+            let snap_local = builder.vcx.mk_local("snap", snap_type);
+            let snap_decl = builder.vcx.mk_local_decl_local(snap_local);
+            let snap_ex: Expr = builder.vcx.mk_local_ex_local(snap_local);
+
+            let typeof_snap = domain_enc_output_ref.typeof_function.apply(builder.vcx, [snap_ex]);
+
+            builder.get_unsafe_cells = Some(
+                builder
+                    .mk_function(
+                        "get_all_UnsafeCells", 
+                        &[ref_self_decl, snap_decl]
+                            .into_iter()
+                            .chain(generic_decls.iter().cloned())
+                            .collect::<Vec<_>>(),
+                        builder.vcx.mk_ty_set(&TypeData::Ref), 
+                        &ty_constructor_enc_output_ref.ty_param_accessors
+                            .iter()
+                            .map(|f| f.apply(builder.vcx, [typeof_snap]))
+                            .zip(generic_exprs.iter().cloned())
+                            .map(|(lhs, rhs)| builder.vcx.mk_eq_expr(lhs, rhs))
+                            .collect::<Vec<_>>(), 
+                        &[], 
+                        Some(get_unsafe_cells_expr)
+                    )
+            );
 
             Ok((
                 PredicateEncData::StructLike(PredicateEncDataStruct {
@@ -281,27 +295,39 @@ pub(crate) fn predicate<'vir>(
         }
         ty::AdtKind::Struct if adt.is_unsafe_cell() => {
 
-            let ref_self = builder.vcx.mk_local("self", &vir::TypeData::Ref);
-            let ref_self_decl = builder.vcx.mk_local_decl_local(ref_self);
+            let self_local = builder.vcx.mk_local("self", &vir::TypeData::Ref);
+            let self_decl = builder.vcx.mk_local_decl_local(self_local);
+            let self_ex = builder.vcx.mk_local_ex_local(self_local);
 
-            let snap_self = builder.vcx.mk_local("snap", snap.snapshot);
-            let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
+            let snap_local = builder.vcx.mk_local("snap", snap.snapshot);
+            let snap_decl = builder.vcx.mk_local_decl_local(snap_local);
 
-            let self_pred = super::opaque::predicate(snap, generic_decls, generic_exprs, builder);
+            let _ = super::opaque::predicate(snap, generic_decls, generic_exprs, builder);
 
-
-            let args = &[ref_self_decl, snap_self_decl]
+            let args = &[self_decl, snap_decl]
                 .into_iter()
                 .chain(generic_decls.iter().cloned())
                 .collect::<Vec<_>>();
+
+            let domain_enc_output_ref = deps.require_ref::<DomainEnc>(task_key)?;
+            let ty_constructor_enc_output_ref = deps.require_ref::<TyConstructorEnc>(task_key)?;
+
+            let snap_ex: Expr = builder.vcx.mk_local_ex_local(snap_local);
+
+            let typeof_snap = domain_enc_output_ref.typeof_function.apply(builder.vcx, [snap_ex]);
 
             builder.get_unsafe_cells = Some(builder.mk_function(
                 "get_all_UnsafeCells", 
                 &args,
                 builder.vcx.mk_ty_set(&TypeData::Ref),
+                &ty_constructor_enc_output_ref.ty_param_accessors
+                        .iter()
+                        .map(|f| f.apply(builder.vcx, [typeof_snap]))
+                        .zip(generic_exprs.iter().cloned())
+                        .map(|(lhs, rhs)| builder.vcx.mk_eq_expr(lhs, rhs))
+                        .collect::<Vec<_>>(),
                 &[],
-                &[],
-                Some(vir::expr! { Set([&TypeData::Ref](ref_self)) }),
+                Some(vir::expr! { Set([&TypeData::Ref](self_ex)) }),
             ));
 
             Ok((PredicateEncData::Trusted, None))
@@ -377,19 +403,31 @@ pub(crate) fn predicate<'vir>(
                     .1,
             );
 
-            let snap_self = builder.vcx.mk_local("snap", snap_type);
-            let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
+            let snap_local = builder.vcx.mk_local("snap", snap_type);
+            let snap_decl = builder.vcx.mk_local_decl_local(snap_local);
+
+            let domain_enc_output_ref = deps.require_ref::<DomainEnc>(task_key)?;
+            let ty_constructor_enc_output_ref = deps.require_ref::<TyConstructorEnc>(task_key)?;
+
+            let snap_ex: Expr = builder.vcx.mk_local_ex_local(snap_local);
+
+            let typeof_snap = domain_enc_output_ref.typeof_function.apply(builder.vcx, [snap_ex]);
 
             builder.get_unsafe_cells = Some(
                 builder
                     .mk_function(
                         "get_all_UnsafeCells", 
-                        &[ref_self_decl, snap_self_decl]
+                        &[ref_self_decl, snap_decl]
                             .into_iter()
                             .chain(generic_decls.iter().cloned())
                             .collect::<Vec<_>>(),
                         builder.vcx.mk_ty_set(&TypeData::Ref), 
-                        &[], 
+                        &ty_constructor_enc_output_ref.ty_param_accessors
+                            .iter()
+                            .map(|f| f.apply(builder.vcx, [typeof_snap]))
+                            .zip(generic_exprs.iter().cloned())
+                            .map(|(lhs, rhs)| builder.vcx.mk_eq_expr(lhs, rhs))
+                            .collect::<Vec<_>>(), 
                         &[], 
                         Some(get_unsafe_cells_expr)
                     )
@@ -547,20 +585,30 @@ pub(crate) fn predicate<'vir>(
                 }),
             ).1);
 
-            let snap_self = builder.vcx.mk_local("snap", snap_type);
-            let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
-            let snap_self_ex = builder.vcx.mk_local_ex_local(snap_self);
+            let snap_local = builder.vcx.mk_local("snap", snap_type);
+            let snap_decl = builder.vcx.mk_local_decl_local(snap_local);
+            let snap_ex = builder.vcx.mk_local_ex_local(snap_local);
 
-            let discr_app_snap = snap_data.snap_to_discr_snap.apply(builder.vcx, [snap_self_ex]);
+            let discr_app_snap = snap_data.snap_to_discr_snap.apply(builder.vcx, [snap_ex]);
+
+            let domain_enc_output_ref = deps.require_ref::<DomainEnc>(task_key)?;
+            let ty_constructor_enc_output_ref = deps.require_ref::<TyConstructorEnc>(task_key)?;
+
+            let typeof_snap = domain_enc_output_ref.typeof_function.apply(builder.vcx, [snap_ex]);
 
             builder.get_unsafe_cells = Some(
                 builder.mk_function(
                     "get_all_UnsafeCells", 
-                    &[ref_self_decl, snap_self_decl].into_iter()
+                    &[ref_self_decl, snap_decl].into_iter()
                         .chain(generic_decls.iter().cloned())
                         .collect::<Vec<_>>(), 
                     builder.vcx.mk_ty_set(&TypeData::Ref), 
-                    &[], 
+                    &ty_constructor_enc_output_ref.ty_param_accessors
+                        .iter()
+                        .map(|f| f.apply(builder.vcx, [typeof_snap]))
+                        .zip(generic_exprs.iter().cloned())
+                        .map(|(lhs, rhs)| builder.vcx.mk_eq_expr(lhs, rhs))
+                        .collect::<Vec<_>>(), 
                     &[],
                     Some(
                         variants.iter()

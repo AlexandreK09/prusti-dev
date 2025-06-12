@@ -1,9 +1,5 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataImmRef, DomainEnc, DomainEncSpecifics},
-    predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataImmRef},
-    rust_ty_snapshots::RustTySnapshotsEnc,
-    snapshot::SnapshotEncOutput,
-    GenericEnc, PredicateEnc,
+    domain::{DomainBuilder, DomainDataImmRef, DomainEnc, DomainEncSpecifics}, lifted::ty_constructor::TyConstructorEnc, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataImmRef}, rust_ty_snapshots::RustTySnapshotsEnc, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -89,6 +85,9 @@ pub(crate) fn predicate<'vir>(
     let snap_data = snap.specifics.expect_immref();
     let generic = deps.require_ref::<GenericEnc>(())?;
 
+    let domain_enc_output_ref = deps.require_ref::<DomainEnc>(task_key)?;
+    let ty_constructor_enc_output_ref = deps.require_ref::<TyConstructorEnc>(task_key)?;
+
     // fields
     let ref_field = builder.field("val", snap_type);
 
@@ -140,6 +139,8 @@ pub(crate) fn predicate<'vir>(
     let deref_snap = snap_data.value_access.apply(builder.vcx, [snap_self_ex]);
     let deref_type = generic.param_type_function.apply(builder.vcx, [deref_snap]);
 
+    let typeof_snap = domain_enc_output_ref.typeof_function.apply(builder.vcx, [snap_self_ex]);
+
     builder.get_unsafe_cells = Some(
         builder.mk_function(
             "get_all_UnsafeCells", 
@@ -147,7 +148,12 @@ pub(crate) fn predicate<'vir>(
             .chain(generic_decls.iter().cloned())
             .collect::<Vec<_>>(), 
             builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
-            &[], 
+            &ty_constructor_enc_output_ref.ty_param_accessors
+                    .iter()
+                    .map(|f| f.apply(builder.vcx, [typeof_snap]))
+                    .zip(generic_exprs.iter().cloned())
+                    .map(|(lhs, rhs)| builder.vcx.mk_eq_expr(lhs, rhs))
+                    .collect::<Vec<_>>(), 
             &[],
             Some(
                 generic.get_unsafe_cells.apply(
