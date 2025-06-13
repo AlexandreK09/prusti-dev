@@ -1,8 +1,5 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataStruct, DomainEnc, DomainEncSpecifics},
-    predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct},
-    snapshot::SnapshotEncOutput,
-    PredicateEnc,
+    domain::{DomainBuilder, DomainDataStruct, DomainEnc, DomainEncSpecifics}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct}, snapshot::SnapshotEncOutput, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -27,6 +24,7 @@ pub(crate) fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
+    pair: &PairRefTypeOutputRef<'vir>,
     deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     builder: &mut PredicateBuilder<'vir>,
 ) -> Result<PredicateEncData<'vir>, EncodeFullError<'vir, PredicateEnc>> {
@@ -54,6 +52,7 @@ pub(crate) fn predicate<'vir>(
         snap_data.field_access,
         task_key,
         &snap,
+        pair,
         snap_data.field_snaps_to_snap,
         deps,
         &[],
@@ -83,7 +82,7 @@ pub(crate) fn predicate<'vir>(
             .mk_function(
                 "get_all_UnsafeCells", 
                 &[ref_self_decl, snap_self_decl], 
-                builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
+                builder.vcx.mk_ty_set(pair.pair_type), 
                 &[], 
                 &[], 
                 Some(

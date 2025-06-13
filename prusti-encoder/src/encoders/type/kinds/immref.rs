@@ -1,5 +1,5 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataImmRef, DomainEnc, DomainEncSpecifics}, lifted::ty_constructor::TyConstructorEnc, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataImmRef}, rust_ty_snapshots::RustTySnapshotsEnc, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
+    domain::{DomainBuilder, DomainDataImmRef, DomainEnc, DomainEncSpecifics}, lifted::ty_constructor::TyConstructorEnc, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataImmRef}, rust_ty_snapshots::RustTySnapshotsEnc, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -59,6 +59,7 @@ pub(crate) fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
+    pair: &PairRefTypeOutputRef<'vir>,
     deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     generic_decls: &[vir::LocalDecl<'vir>],
     generic_exprs: &[vir::Expr<'vir>],
@@ -147,7 +148,7 @@ pub(crate) fn predicate<'vir>(
             &[ref_self_decl, snap_self_decl].into_iter()
             .chain(generic_decls.iter().cloned())
             .collect::<Vec<_>>(), 
-            builder.vcx.mk_ty_set(&vir::TypeData::Ref), 
+            builder.vcx.mk_ty_set(pair.pair_type), 
             &ty_constructor_enc_output_ref.ty_param_accessors
                     .iter()
                     .map(|f| f.apply(builder.vcx, [typeof_snap]))

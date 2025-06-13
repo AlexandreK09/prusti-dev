@@ -2,16 +2,10 @@ use crate::encoders::{
     domain::{
         DomainBuilder, DomainDataEnum, DomainDataStruct, DomainDataVariant, DomainEnc,
         DomainEncOutputRef, DomainEncSpecifics, FieldTy,
-    },
-    lifted::{ty::{EncodeGenericsAsParamTy, LiftedTyEnc}, ty_constructor::TyConstructorEnc},
-    predicate::{
+    }, lifted::{ty::{EncodeGenericsAsParamTy, LiftedTyEnc}, ty_constructor::TyConstructorEnc}, pair_ref_type::{self, PairRefTypeOutputRef}, predicate::{
         PredicateBuilder, PredicateEncData, PredicateEncDataEnum, PredicateEncDataStruct,
         PredicateEncDataVariant,
-    },
-    rust_ty_predicates::RustTyPredicatesEnc,
-    rust_ty_snapshots::RustTySnapshotsEnc,
-    snapshot::SnapshotEncOutput,
-    PredicateEnc,
+    }, rust_ty_predicates::RustTyPredicatesEnc, rust_ty_snapshots::RustTySnapshotsEnc, snapshot::SnapshotEncOutput, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -189,6 +183,7 @@ pub(crate) fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
+    pair: &PairRefTypeOutputRef<'vir>,
     deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     generic_decls: &[vir::LocalDecl<'vir>],
     generic_exprs: &[vir::Expr<'vir>],
@@ -232,6 +227,7 @@ pub(crate) fn predicate<'vir>(
                 snap.specifics.expect_structlike().field_access,
                 task_key,
                 &snap,
+                pair,
                 snap_data.field_snaps_to_snap,
                 deps,
                 generic_decls,
@@ -273,7 +269,7 @@ pub(crate) fn predicate<'vir>(
                             .into_iter()
                             .chain(generic_decls.iter().cloned())
                             .collect::<Vec<_>>(),
-                        builder.vcx.mk_ty_set(&TypeData::Ref), 
+                        builder.vcx.mk_ty_set(pair.pair_type), 
                         &ty_constructor_enc_output_ref.ty_param_accessors
                             .iter()
                             .map(|f| f.apply(builder.vcx, [typeof_snap]))
@@ -316,10 +312,12 @@ pub(crate) fn predicate<'vir>(
 
             let typeof_snap = domain_enc_output_ref.typeof_function.apply(builder.vcx, [snap_ex]);
 
+            let pair_ex = pair.constructor.apply(builder.vcx, [self_ex, generic_exprs[0]]);
+
             builder.get_unsafe_cells = Some(builder.mk_function(
                 "get_all_UnsafeCells", 
                 &args,
-                builder.vcx.mk_ty_set(&TypeData::Ref),
+                builder.vcx.mk_ty_set(pair.pair_type),
                 &ty_constructor_enc_output_ref.ty_param_accessors
                         .iter()
                         .map(|f| f.apply(builder.vcx, [typeof_snap]))
@@ -327,7 +325,7 @@ pub(crate) fn predicate<'vir>(
                         .map(|(lhs, rhs)| builder.vcx.mk_eq_expr(lhs, rhs))
                         .collect::<Vec<_>>(),
                 &[],
-                Some(vir::expr! { Set([&TypeData::Ref](self_ex)) }),
+                Some(vir::expr! { Set([pair.pair_type](pair_ex)) }),
             ));
 
             Ok((PredicateEncData::Trusted, None))
@@ -379,6 +377,7 @@ pub(crate) fn predicate<'vir>(
                 snap.specifics.expect_structlike().field_access,
                 task_key,
                 &snap,
+                pair,
                 snap_data.field_snaps_to_snap,
                 deps,
                 generic_decls,
@@ -421,7 +420,7 @@ pub(crate) fn predicate<'vir>(
                             .into_iter()
                             .chain(generic_decls.iter().cloned())
                             .collect::<Vec<_>>(),
-                        builder.vcx.mk_ty_set(&TypeData::Ref), 
+                        builder.vcx.mk_ty_set(pair.pair_type), 
                         &ty_constructor_enc_output_ref.ty_param_accessors
                             .iter()
                             .map(|f| f.apply(builder.vcx, [typeof_snap]))
@@ -518,6 +517,7 @@ pub(crate) fn predicate<'vir>(
                         snap_variant.fields.field_access,
                         task_key,
                         &snap,
+                        pair,
                         snap_variant.fields.field_snaps_to_snap,
                         deps,
                         generic_decls,

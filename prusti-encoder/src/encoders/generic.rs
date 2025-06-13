@@ -3,6 +3,8 @@ use vir::{
     BinaryArity, CallableIdent, DomainIdent, DomainParamData, FunctionIdent, KnownArityAny, NullaryArity, PredicateIdent, TernaryArity, TypeData, UnaryArity, ViperIdent
 };
 
+use crate::encoders::pair_ref_type;
+
 pub struct GenericEnc;
 
 #[derive(Clone, Debug)]
@@ -35,6 +37,7 @@ pub struct GenericEncOutput<'vir> {
 
 const TYP_DOMAIN: TypeData<'static> = TypeData::Domain("Type", &[]);
 const SNAPSHOT_PARAM_DOMAIN: TypeData<'static> = TypeData::Domain("s_Param", &[]);
+const PAIR_REF_TYPE_DOMAIN: TypeData<'static> = TypeData::Domain(pair_ref_type::DOMAIN_NAME, &[]);
 
 impl TaskEncoder for GenericEnc {
     task_encoder::encoder_cache!(GenericEnc);
@@ -82,7 +85,7 @@ impl TaskEncoder for GenericEnc {
             FunctionIdent::new(
             ViperIdent::new("p_Param_get_all_UnsafeCells"), 
             TernaryArity::new(&[&TypeData::Ref, &SNAPSHOT_PARAM_DOMAIN, &TYP_DOMAIN]), 
-            vcx.mk_ty_set(&TypeData::Ref),
+            vcx.mk_ty_set(&PAIR_REF_TYPE_DOMAIN),
             )
         );
 

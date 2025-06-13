@@ -1,10 +1,5 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainEnc, DomainEncOutputRef, FieldFunctions, FieldTy},
-    lifted::ty_constructor::TyConstructorEnc,
-    predicate::PredicateBuilder,
-    rust_ty_predicates::RustTyPredicatesEncOutputRef,
-    snapshot::SnapshotEncOutput,
-    GenericEnc, PredicateEnc,
+    domain::{DomainBuilder, DomainEnc, DomainEncOutputRef, FieldFunctions, FieldTy}, lifted::ty_constructor::TyConstructorEnc, pair_ref_type::PairRefTypeOutputRef, predicate::PredicateBuilder, rust_ty_predicates::RustTyPredicatesEncOutputRef, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty::{ParamTy, TyKind};
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -164,6 +159,7 @@ pub(crate) fn predicate<'vir>(
     fields_snap: &'vir [FieldFunctions<'vir>],
     task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: &SnapshotEncOutput<'vir>,
+    pair: &PairRefTypeOutputRef<'vir>,
     variant_field_snaps_to_snap: FunctionIdent<'vir, UnknownArity<'vir>>,
     deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     generic_decls: &[vir::LocalDecl<'vir>],
@@ -292,12 +288,7 @@ pub(crate) fn predicate<'vir>(
         .reduce(|lhs, rhs|
             builder.vcx.mk_bin_op_expr(vir::BinOpKind::SetUnion, lhs, rhs)
         )
-        /*.map(|e| 
-            vir::expr! {
-                unfolding_wildcard ([pred_owned](ref_self, ..[generic_exprs])) in (e) 
-            }
-        )*/
-        .unwrap_or(vir::expr! { Set([&vir::TypeData::Ref]()) });
+        .unwrap_or(vir::expr! { Set([pair.pair_type]()) });
 
     /*
     let pred_owned_expr = vir::expr! {

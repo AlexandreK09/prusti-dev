@@ -10,6 +10,7 @@ mod local_def;
 mod r#type;
 mod r#const;
 mod mono;
+mod pair_ref_type;
 // TODO: move `mir_impure` to this dir:
 pub mod impure;
 
@@ -35,6 +36,7 @@ pub use pure::spec::MirSpecEnc;
 pub use r#const::ConstEnc;
 pub use r#type::*;
 pub use snapshot::SnapshotEnc;
+pub use pair_ref_type::PairRefTypeEnc;
 pub(super) use spec::{init_def_spec, with_proc_spec};
 pub use spec::{SpecEnc, SpecEncTask, is_function_trusted, is_type_trusted};
 pub use viper_tuple::{ViperTupleEnc, ViperTupleEncOutput};

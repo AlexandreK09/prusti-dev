@@ -1,11 +1,7 @@
 use crate::encoders::{
     domain::{
         DomainBuilder, DomainDataStruct, DomainEnc, DomainEncOutputRef, DomainEncSpecifics, FieldTy,
-    },
-    predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct},
-    rust_ty_predicates::RustTyPredicatesEnc,
-    snapshot::SnapshotEncOutput,
-    PredicateEnc,
+    }, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct}, rust_ty_predicates::RustTyPredicatesEnc, snapshot::SnapshotEncOutput, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -65,6 +61,7 @@ pub(crate) fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
+    pair: &PairRefTypeOutputRef<'vir>,
     deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     generic_decls: &[vir::LocalDecl<'vir>],
     generic_exprs: &[vir::Expr<'vir>],
@@ -100,6 +97,7 @@ pub(crate) fn predicate<'vir>(
         snap_data.field_access,
         task_key,
         &snap,
+        pair,
         snap_data.field_snaps_to_snap,
         deps,
         generic_decls,

@@ -106,6 +106,13 @@ pub fn test_entrypoint<'tcx>(
         program_domains.push(output.param_snapshot);
     }
 
+
+    header(&mut viper_code, "pair");
+    for output in crate::encoders::PairRefTypeEnc::all_outputs(){
+        viper_code.push_str(&format!("{:?}\n", output.domain));
+        program_domains.push(output.domain);
+    }
+
     header(&mut viper_code, "pure generic casts");
     for cast_functions in CastersEnc::<CastTypePure>::all_outputs() {
         for cast_function in cast_functions {
