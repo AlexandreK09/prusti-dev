@@ -91,10 +91,47 @@ impl TaskEncoder for PairRefTypeEnc {
 
         let domain = vir::with_vcx(|vcx| {
             let functions = vcx.alloc_slice(&[constructor.1, type_accessor.1, ref_accessor.1]);
+
+            let r_local = vcx.mk_local("r", &TypeData::Ref);
+            let r_decl = vcx.mk_local_decl_local(r_local);
+            let r_ex = vcx.mk_local_ex_local(r_local);
+            let t_local = vcx.mk_local("t", generic_enc_output_ref.type_snapshot);
+            let t_decl = vcx.mk_local_decl_local(t_local);
+            let t_ex = vcx.mk_local_ex_local(t_local);
+
+            let constr_app = constructor.0.apply(vcx, [r_ex, t_ex]);
+
+            let qvars = vcx.alloc_slice(&[r_decl, t_decl]);
+            let triggers = vcx.alloc_slice(&[vcx.mk_trigger(&[constr_app])]);
+
+            let axioms = vcx.alloc_slice(&[
+                vcx.mk_domain_axiom(
+                    ViperIdent::new("pair_ref_type_ax_ref"), 
+                    vcx.mk_forall_expr(
+                        qvars, 
+                        triggers, 
+                        vcx.mk_eq_expr(
+                            ref_accessor.0.apply(vcx, [constr_app]),
+                            r_ex
+                        )
+                    )
+                ),
+                vcx.mk_domain_axiom(
+                    ViperIdent::new("pair_ref_type_ax_type"), 
+                    vcx.mk_forall_expr(
+                        qvars, 
+                        triggers, 
+                        vcx.mk_eq_expr(
+                            type_accessor.0.apply(vcx, [constr_app]),
+                            t_ex
+                        )
+                    )
+                ),
+            ]);
             vcx.alloc(DomainGenData{
                 name: DOMAIN_NAME,
                 typarams: &[],
-                axioms: &[],
+                axioms,
                 functions
             })
         });
