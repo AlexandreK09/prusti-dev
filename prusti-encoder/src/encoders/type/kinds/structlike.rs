@@ -1,9 +1,12 @@
 use crate::encoders::{
     domain::{DomainBuilder, DomainEnc, DomainEncOutputRef, FieldFunctions, FieldTy}, lifted::ty_constructor::TyConstructorEnc, pair_ref_type::PairRefTypeOutputRef, predicate::PredicateBuilder, rust_ty_predicates::RustTyPredicatesEncOutputRef, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
 };
+use crate::encoders::most_generic_ty::extract_type_params;
 use prusti_rustc_interface::middle::ty::{ParamTy, TyKind};
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
-use vir::{vir_format, FunctionIdent, PredicateIdent, ToKnownArity, UnknownArity};
+use vir::{vir_format, Expr, FunctionIdent, PredicateIdent, ToKnownArity, UnknownArity};
+
+use prusti_rustc_interface::middle::ty::Ty;
 
 pub fn domain<'vir>(
     prefix: &str,
@@ -108,15 +111,33 @@ pub fn domain<'vir>(
                     ([field_reads[idx]]([cons_ident](..[field_vars]))) == ([field_vars[idx]])
             },
         );
-        if let TyKind::Param(p) = fields[idx].rust_ty.kind() {
-            // TODO: this only handles top-level generics
-            let param_idx = p.index as usize;
-            builder.axiom(&format!("{prefix}type_read_{idx}"), vir::expr! {
-                forall s: [builder.self_type()] ::
-                    {[field_reads[idx]](s)}
-                    ([generic_enc.param_type_function]([field_reads[idx]](s))) == ([output_ref.ty_param_accessors[param_idx]]([output_ref.typeof_function](s)))
-            });
-        }
+        // if let TyKind::Param(p) = fields[idx].rust_ty.kind() {
+        //     // TODO: this only handles top-level generics
+        //     let param_idx = p.index as usize;
+        //     builder.axiom(&format!("{prefix}type_read_{idx}"), vir::expr! {
+        //         forall s: [builder.self_type()] ::
+        //             {[field_reads[idx]](s)}
+        //             ([generic_enc.param_type_function]([field_reads[idx]](s))) == ([output_ref.ty_param_accessors[param_idx]]([output_ref.typeof_function](s)))
+        //     });
+        // }
+
+        //type axioms for fields
+        let s_ex = builder.vcx.mk_local_ex("s", builder.self_type());
+
+        let typeof_snap_expr = output_ref.typeof_function.apply(builder.vcx, [s_ex]);
+        let rhs = field_type_snapshot(fields[idx].rust_ty, output_ref, typeof_snap_expr, deps, builder)?;
+        let lhs = {
+            let most_generic = extract_type_params(builder.vcx.tcx.unwrap(), fields[idx].rust_ty).0;
+            let output_ref = deps.require_ref::<DomainEnc>(most_generic)?;
+            vir::expr!{
+                [output_ref.typeof_function]([field_reads[idx]]([s_ex]))
+            }
+        };
+        builder.axiom(&format!("{prefix}type_read_{idx}"), vir::expr! {
+            forall s: [builder.self_type()] ::
+                {[field_reads[idx]](s)}
+                ([lhs]) == ([rhs])
+        });
     }
     for write_idx in 0..fields.len() {
         for read_idx in 0..fields.len() {
@@ -151,6 +172,48 @@ pub fn domain<'vir>(
         builder.vcx.alloc_slice(&field_access),
         field_vars,
     ))
+}
+
+fn field_type_snapshot<'vir>(
+    rust_ty: Ty<'vir>,
+    output_ref: &DomainEncOutputRef<'vir>,
+    typeof_snap_expr: Expr<'vir>,
+    deps: &mut TaskEncoderDependencies<'vir, DomainEnc>,
+    builder: &mut DomainBuilder<'vir>
+) -> Result<Expr<'vir>, EncodeFullError<'vir, DomainEnc>>{
+    match rust_ty.kind(){
+        TyKind::Bool
+        | TyKind::Char
+        | TyKind::Int(_)
+        | TyKind::Uint(_)
+        | TyKind::Float(_)
+        | TyKind::Str
+        | TyKind::Never => {
+            let ty_cons = deps.require_ref::<TyConstructorEnc>(extract_type_params(builder.vcx.tcx.unwrap(), rust_ty).0)?;
+            Ok(ty_cons.ty_constructor.apply(builder.vcx, &[]))
+        }
+        TyKind::Param(p) => {
+            let param_idx = p.index as usize;
+            Ok(output_ref.ty_param_accessors[param_idx].apply(builder.vcx, [typeof_snap_expr]))
+        }
+        TyKind::Adt(_, _) => {
+            let (most_generic, args) = extract_type_params(builder.vcx.tcx.unwrap(), rust_ty);
+            let ty_cons = deps.require_ref::<TyConstructorEnc>(most_generic)?;
+            let mut args_expr = Vec::new();
+            for t in args{
+                args_expr.push(field_type_snapshot(t, output_ref, typeof_snap_expr, deps, builder)?);
+            }
+            Ok(
+                ty_cons.ty_constructor.apply(
+                    builder.vcx,
+                    builder.vcx.alloc_slice(
+                        &args_expr
+                    )
+                )
+            )
+        }
+        _ => todo!()
+    }
 }
 
 pub(crate) fn predicate<'vir>(

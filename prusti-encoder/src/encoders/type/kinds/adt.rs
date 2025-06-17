@@ -602,7 +602,7 @@ pub(crate) fn predicate<'vir>(
                     &[ref_self_decl, snap_decl].into_iter()
                         .chain(generic_decls.iter().cloned())
                         .collect::<Vec<_>>(), 
-                    builder.vcx.mk_ty_set(&TypeData::Ref), 
+                    builder.vcx.mk_ty_set(pair.pair_type), 
                     &ty_constructor_enc_output_ref.ty_param_accessors
                         .iter()
                         .map(|f| f.apply(builder.vcx, [typeof_snap]))
@@ -613,7 +613,7 @@ pub(crate) fn predicate<'vir>(
                     Some(
                         variants.iter()
                         .fold(
-                            vir::expr! { Set([&TypeData::Ref]()) },
+                            vir::expr! { Set([pair.pair_type]()) },
                             |else_, variant| builder.vcx.mk_ternary_expr(
                                 vir::expr! { ([discr_app_snap]) == ([variant.3.discr]) },
                                 variant.2,
