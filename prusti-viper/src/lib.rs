@@ -193,6 +193,7 @@ impl<'vir, 'v> ToViper<'vir, 'v> for vir::BinOp<'vir> {
             vir::BinOpKind::Mod => ctx.ast.mod_with_pos(lhs, rhs, pos),
             vir::BinOpKind::Implies => ctx.ast.implies_with_pos(lhs, rhs, pos),
             vir::BinOpKind::SetUnion => ctx.ast.any_set_union(lhs, rhs),
+            vir::BinOpKind::SetIn => ctx.ast.any_set_contains(lhs, rhs),
         }
     }
 }

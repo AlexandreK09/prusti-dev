@@ -1,13 +1,14 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataPrim, DomainEnc, DomainEncSpecifics}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData}, snapshot::SnapshotEncOutput, PredicateEnc
+    domain::{DomainBuilder, DomainDataPrim, DomainEnc, DomainEncSpecifics}, lifted::ty_constructor::TyConstructorEnc, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData}, snapshot::SnapshotEncOutput, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
-use vir::ToKnownArity;
+use vir::{FunctionIdent, NullaryArity, ToKnownArity, UnknownArity};
 
 pub(crate) fn domain<'vir>(
     task_key: <DomainEnc as TaskEncoder>::TaskKey<'vir>,
-    _deps: &mut TaskEncoderDependencies<'vir, DomainEnc>,
+    deps: &mut TaskEncoderDependencies<'vir, DomainEnc>,
+    typeof_ident: FunctionIdent<'vir, UnknownArity<'vir>>,
     builder: &mut DomainBuilder<'vir>,
 ) -> Result<DomainEncSpecifics<'vir>, EncodeFullError<'vir, DomainEnc>> {
     let ty = task_key.ty();
@@ -25,6 +26,15 @@ pub(crate) fn domain<'vir>(
     builder.axiom("cons", vir::expr! {
         forall s: [builder.self_type()] :: {[value_ident](s)} ([cons_ident]([value_ident](s))) == (s)
     });
+
+    let ty_constr = deps.require_ref::<TyConstructorEnc>(task_key)?;
+
+    builder.axiom(
+        "type",
+        vir::expr! {
+            forall value: [prim_type] :: {[cons_ident](value)} ([typeof_ident]([cons_ident](value))) == ([ty_constr.ty_constructor]())
+        },
+    );
 
     match ty_kind {
         ty::TyKind::Int(_) | ty::TyKind::Uint(_) => {

@@ -232,7 +232,7 @@ pub(crate) fn predicate<'vir>(
                 deps,
                 generic_decls,
                 generic_exprs,
-                builder,
+                builder, 
             )?;
 
             // Ref-to-snap

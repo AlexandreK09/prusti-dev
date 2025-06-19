@@ -480,6 +480,11 @@ macro_rules! expr {
         $crate::expr!(@expr_one; $($lhs)*),
         $crate::expr!(@expr_one; $($rhs)*),
     )); } };
+    (@expr($output:ident); ( $($lhs:tt)+ ) in ( $($rhs:tt)+ )) => { { $output.push(vcx!().mk_bin_op_expr(
+        $crate::BinOpKind::SetIn,
+        $crate::expr!(@expr_one; $($lhs)*),
+        $crate::expr!(@expr_one; $($rhs)*),
+    )); } };
     (@expr($output:ident); null) => { { $output.push(vcx!().mk_null()); } };
     (@expr($output:ident); true) => { { $output.push(vcx!().mk_bool::<true>()); } };
     (@expr($output:ident); false) => { { $output.push(vcx!().mk_bool::<false>()); } };

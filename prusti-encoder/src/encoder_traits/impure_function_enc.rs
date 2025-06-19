@@ -1,11 +1,10 @@
 use pcg::{borrow_pcg::borrow_checker::r#impl::BorrowCheckerImpl, r#loop::LoopAnalysis};
 use prusti_rustc_interface::middle::mir;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
-use vir::{MethodIdent, UnknownArity, ViperIdent};
+use vir::{Expr, MethodIdent, UnknownArity, ViperIdent, VirCtxt};
 
 use crate::encoders::{
-    lifted::func_def_ty_params::LiftedTyParamsEnc, ImpureEncVisitor, MirImpureEnc, MirLocalDefEnc,
-    MirSpecEnc, WandEnc, WandEncTask,
+    lifted::func_def_ty_params::LiftedTyParamsEnc, GenericEnc, ImpureEncVisitor, MirImpureEnc, MirLocalDefEnc, MirSpecEnc, PairRefTypeEnc, PredicateEncOutputRef, WandEnc, WandEncTask
 };
 
 use super::function_enc::FunctionEnc;
@@ -107,6 +106,30 @@ where
             pres.extend(wands.indirect_pres(vcx, &local_defs, deps));
             posts.extend(wands.indirect_posts(vcx, &local_defs, deps));
             posts.extend(wands.wand_posts(vcx, &local_defs, deps));
+
+            let pair_encoder_ref = deps.require_ref::<PairRefTypeEnc>(())?;
+            let generic_encoder_ref = deps.require_ref::<GenericEnc>(())?;
+
+            let p_ex = vcx.mk_local_ex("p", pair_encoder_ref.pair_type);
+            let p_params_args = [
+                pair_encoder_ref.ref_accessor.apply(vcx, [p_ex]), 
+                pair_encoder_ref.type_accessor.apply(vcx, [p_ex]),
+            ];
+
+            if let Some(expr) = local_defs
+                .locals
+                .iter()
+                .skip(1) //skip the return value
+                .map(|local_def| local_def.unsafe_cells)
+                .reduce(|lhs, rhs| vcx.mk_bin_op_expr(vir::BinOpKind::SetUnion, lhs, rhs))
+                .map(|set|
+                    vir::expr!{
+                        forall p: [pair_encoder_ref.pair_type] :: ((p) in (set)) ==> ([generic_encoder_ref.ref_to_pred.as_unknown_arity()](..[p_params_args]))
+                    }
+                )
+            {
+                pres.push(expr);
+            }
 
             // Do not encode the method body if it is external, trusted, or just
             // a call stub.

@@ -24,12 +24,14 @@ pub fn domain<'vir>(
     ),
     EncodeFullError<'vir, DomainEnc>,
 > {
+    let generic_enc = deps.require_ref::<GenericEnc>(())?;
+
     // constructor
     let cons_ident = builder.function(
         &format!("{prefix}cons"),
         builder
             .vcx
-            .alloc_slice(&fields.iter().map(|fty| fty.ty).collect::<Vec<_>>()),
+            .alloc_slice(&fields.iter().map(|fty| fty.ty).chain(generics.iter().map(|_| generic_enc.type_snapshot)).collect::<Vec<_>>()),
         builder.self_type(),
     );
 
@@ -58,6 +60,14 @@ pub fn domain<'vir>(
         .collect::<Vec<_>>();
 
     // variables for quantifiers
+    let generic_vars = generics
+        .iter()
+        .map(|g| {
+            builder
+            .vcx
+            .mk_local(builder.vcx.alloc_str(g.name.as_str()), generic_enc.type_snapshot)
+        })
+        .collect::<Vec<_>>();
     let field_vars = fields
         .iter()
         .enumerate()
@@ -66,6 +76,9 @@ pub fn domain<'vir>(
                 .vcx
                 .mk_local(vir_format!(builder.vcx, "f{idx}"), ty.ty)
         })
+        .chain(
+            generic_vars.iter().cloned()
+        )
         .collect::<Vec<_>>();
 
     // TODO: typeof and read_type axioms
@@ -84,10 +97,10 @@ pub fn domain<'vir>(
     }
     */
 
+    let ty_cons = deps.require_ref::<TyConstructorEnc>(task_key)?;
     if prefix.is_empty() {
         // TODO: this ensures that we only produce one axiom for enums, but the
         //   check based on prefix is not very clean
-        let ty_cons = deps.require_ref::<TyConstructorEnc>(task_key)?;
         builder.axiom("typeof", vir::expr! {
             forall s: [builder.self_type()] ::
                 {[output_ref.typeof_function](s)}
@@ -100,17 +113,46 @@ pub fn domain<'vir>(
         });
     }
 
+    builder.axiom(
+        &format!("{prefix}cons_type"),
+        vir::expr! {
+            forall ..[field_vars] ::
+                {[cons_ident](..[field_vars])}
+                ([output_ref.typeof_function]([cons_ident](..[field_vars]))) == ([ty_cons.ty_constructor](..[generic_vars]))
+        }    
+    );
+
+    let mut cons_read_preconditions = Vec::new();
+
+    let generic_types = generic_vars.iter().map(|&local| builder.vcx.mk_local_ex_local(local)).collect::<Vec<_>>();
+    for idx in 0..fields.len(){
+        let field = &fields[idx];
+        let local = field_vars[idx];
+
+        let most_generic = extract_type_params(builder.vcx.tcx.unwrap(), field.rust_ty).0;
+        let field_type_domain = deps.require_ref::<DomainEnc>(most_generic)?;
+        let actual_type = vir::expr! {
+            [field_type_domain.typeof_function]([local])
+        };
+        
+        let expected_type = field_expected_type_snapshot(field.rust_ty, &generic_types, deps, builder)?;
+        let eq = builder.vcx.mk_eq_expr(actual_type, expected_type);
+        cons_read_preconditions.push(eq);
+    }
+
+    
+    let cons_read_precondition = builder.vcx.mk_conj(&cons_read_preconditions);
     // field accessor axioms
-    let generic_enc = deps.require_ref::<GenericEnc>(())?;
     for idx in 0..fields.len() {
         builder.axiom(
             &format!("{prefix}cons_read_{idx}"),
             vir::expr! {
                 forall ..[field_vars] ::
                     {[cons_ident](..[field_vars])}
-                    ([field_reads[idx]]([cons_ident](..[field_vars]))) == ([field_vars[idx]])
+                    (cons_read_precondition) ==> (([field_reads[idx]]([cons_ident](..[field_vars]))) == ([field_vars[idx]]))
             },
         );
+
         // if let TyKind::Param(p) = fields[idx].rust_ty.kind() {
         //     // TODO: this only handles top-level generics
         //     let param_idx = p.index as usize;
@@ -125,7 +167,10 @@ pub fn domain<'vir>(
         let s_ex = builder.vcx.mk_local_ex("s", builder.self_type());
 
         let typeof_snap_expr = output_ref.typeof_function.apply(builder.vcx, [s_ex]);
-        let rhs = field_type_snapshot(fields[idx].rust_ty, output_ref, typeof_snap_expr, deps, builder)?;
+
+        let generic_types = output_ref.ty_param_accessors.iter().map(|acc| acc.apply(builder.vcx, [typeof_snap_expr])).collect::<Vec<_>>();
+
+        let rhs = field_expected_type_snapshot(fields[idx].rust_ty, &generic_types, deps, builder)?;
         let lhs = {
             let most_generic = extract_type_params(builder.vcx.tcx.unwrap(), fields[idx].rust_ty).0;
             let output_ref = deps.require_ref::<DomainEnc>(most_generic)?;
@@ -174,10 +219,9 @@ pub fn domain<'vir>(
     ))
 }
 
-fn field_type_snapshot<'vir>(
+fn field_expected_type_snapshot<'vir>(
     rust_ty: Ty<'vir>,
-    output_ref: &DomainEncOutputRef<'vir>,
-    typeof_snap_expr: Expr<'vir>,
+    generic_types: &[Expr<'vir>],
     deps: &mut TaskEncoderDependencies<'vir, DomainEnc>,
     builder: &mut DomainBuilder<'vir>
 ) -> Result<Expr<'vir>, EncodeFullError<'vir, DomainEnc>>{
@@ -189,19 +233,19 @@ fn field_type_snapshot<'vir>(
         | TyKind::Float(_)
         | TyKind::Str
         | TyKind::Never => {
-            let ty_cons = deps.require_ref::<TyConstructorEnc>(extract_type_params(builder.vcx.tcx.unwrap(), rust_ty).0)?;
+            let ty_cons = deps.require_ref::<TyConstructorEnc>(extract_type_params(builder.vcx.tcx(), rust_ty).0)?;
             Ok(ty_cons.ty_constructor.apply(builder.vcx, &[]))
         }
         TyKind::Param(p) => {
             let param_idx = p.index as usize;
-            Ok(output_ref.ty_param_accessors[param_idx].apply(builder.vcx, [typeof_snap_expr]))
+            Ok(generic_types[param_idx])
         }
         TyKind::Adt(_, _) => {
-            let (most_generic, args) = extract_type_params(builder.vcx.tcx.unwrap(), rust_ty);
+            let (most_generic, args) = extract_type_params(builder.vcx.tcx(), rust_ty);
             let ty_cons = deps.require_ref::<TyConstructorEnc>(most_generic)?;
             let mut args_expr = Vec::new();
             for t in args{
-                args_expr.push(field_type_snapshot(t, output_ref, typeof_snap_expr, deps, builder)?);
+                args_expr.push(field_expected_type_snapshot(t, generic_types, deps, builder)?);
             }
             Ok(
                 ty_cons.ty_constructor.apply(
@@ -323,6 +367,7 @@ pub(crate) fn predicate<'vir>(
                 ),
             )
         })
+        .chain(generic_exprs.iter().cloned())
         .collect::<Vec<_>>();
     let variant_snap_expr = vir::expr! {
         unfolding_wildcard ([pred_owned](ref_self, ..[generic_exprs])) in ([variant_field_snaps_to_snap](..[snap_args]))
