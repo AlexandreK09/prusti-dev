@@ -185,7 +185,7 @@ impl TaskEncoder for DomainEnc {
                 | TyKind::Int(_)
                 | TyKind::Uint(_)
                 | TyKind::Float(_) => {
-                    super::kinds::primitive::domain(*task_key, deps, typeof_ident, &mut builder)?
+                    super::kinds::primitive::domain(*task_key, typeof_ident, deps, &mut builder)?
                 }
                 TyKind::Closure(..) => {
                     super::kinds::closure::domain(*task_key, &output_ref, deps, &mut builder)?
@@ -198,7 +198,7 @@ impl TaskEncoder for DomainEnc {
                 }
                 TyKind::Never => super::kinds::never::domain(*task_key, deps, &mut builder)?,
                 TyKind::Ref(_, _, ty::Mutability::Not) => {
-                    super::kinds::immref::domain(*task_key, deps, &mut builder)?
+                    super::kinds::immref::domain(*task_key, typeof_ident, deps, &mut builder)?
                 }
                 TyKind::Ref(_, _, ty::Mutability::Mut) => {
                     super::kinds::mutref::domain(*task_key, deps, &mut builder)?

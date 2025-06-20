@@ -7,8 +7,8 @@ use vir::{FunctionIdent, NullaryArity, ToKnownArity, UnknownArity};
 
 pub(crate) fn domain<'vir>(
     task_key: <DomainEnc as TaskEncoder>::TaskKey<'vir>,
-    deps: &mut TaskEncoderDependencies<'vir, DomainEnc>,
     typeof_ident: FunctionIdent<'vir, UnknownArity<'vir>>,
+    deps: &mut TaskEncoderDependencies<'vir, DomainEnc>,
     builder: &mut DomainBuilder<'vir>,
 ) -> Result<DomainEncSpecifics<'vir>, EncodeFullError<'vir, DomainEnc>> {
     let ty = task_key.ty();

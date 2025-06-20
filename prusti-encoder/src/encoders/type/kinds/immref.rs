@@ -3,10 +3,11 @@ use crate::encoders::{
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
-use vir::ToKnownArity;
+use vir::{FunctionIdent, ToKnownArity, UnknownArity};
 
 pub(crate) fn domain<'vir>(
     task_key: <DomainEnc as TaskEncoder>::TaskKey<'vir>,
+    typeof_ident: FunctionIdent<'vir, UnknownArity<'vir>>,
     deps: &mut TaskEncoderDependencies<'vir, DomainEnc>,
     builder: &mut DomainBuilder<'vir>,
 ) -> Result<DomainEncSpecifics<'vir>, EncodeFullError<'vir, DomainEnc>> {
@@ -19,17 +20,24 @@ pub(crate) fn domain<'vir>(
     let inner_ty_out = deps.require_ref::<RustTySnapshotsEnc>(*inner_ty)?;
     let inner_type = inner_ty_out.generic_snapshot.snapshot;
 
+    let generic_output_ref = deps.require_ref::<GenericEnc>(())?;
+
     let prim_type = &vir::TypeData::Ref;
 
     let deref_ident = builder.function("deref", &[builder.self_type()], prim_type);
     let value_ident = builder.function("value", &[builder.self_type()], inner_type);
     let cons_ident = builder.function("cons", &[prim_type, inner_type], builder.self_type());
 
+    let ty_constructor  = deps.require_ref::<TyConstructorEnc>(task_key)?;
+
     builder.axiom("deref", vir::expr! {
         forall r: [prim_type], value: [inner_type] :: {[cons_ident](r, value)} ([deref_ident]([cons_ident](r, value))) == (r)
     });
     builder.axiom("value", vir::expr! {
         forall r: [prim_type], value: [inner_type] :: {[cons_ident](r, value)} ([value_ident]([cons_ident](r, value))) == (value)
+    });
+    builder.axiom("type", vir::expr! {
+        forall s: [builder.self_type()] :: ([typeof_ident](s)) == ([ty_constructor.ty_constructor]([generic_output_ref.param_type_function]([value_ident](s))))
     });
     // builder.axiom("cons", vir::expr! {
     //     forall s: [builder.self_type()] :: {[deref_ident](s)} ([cons_ident]([deref_ident](s))) == (s)
