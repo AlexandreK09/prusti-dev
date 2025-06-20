@@ -1,10 +1,11 @@
 use pcg::{borrow_pcg::borrow_checker::r#impl::BorrowCheckerImpl, r#loop::LoopAnalysis};
-use prusti_rustc_interface::middle::mir;
+use prusti_rustc_interface::middle::{ty, mir};
+use prusti_rustc_interface::span::Symbol;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
-use vir::{Expr, MethodIdent, UnknownArity, ViperIdent, VirCtxt};
+use vir::{MethodIdent, UnknownArity, ViperIdent};
 
 use crate::encoders::{
-    lifted::func_def_ty_params::LiftedTyParamsEnc, GenericEnc, ImpureEncVisitor, MirImpureEnc, MirLocalDefEnc, MirSpecEnc, PairRefTypeEnc, PredicateEncOutputRef, WandEnc, WandEncTask
+    lifted::func_def_ty_params::LiftedTyParamsEnc, most_generic_ty::{extract_type_params, MostGenericTy}, GenericEnc, ImpureEncVisitor, MirImpureEnc, MirLocalDefEnc, MirSpecEnc, PairRefTypeEnc, PredicateEnc, PredicateEncOutputRef, WandEnc, WandEncTask
 };
 
 use super::function_enc::FunctionEnc;
@@ -110,6 +111,10 @@ where
             let pair_encoder_ref = deps.require_ref::<PairRefTypeEnc>(())?;
             let generic_encoder_ref = deps.require_ref::<GenericEnc>(())?;
 
+            let param_type = ty::Ty::new_param(vcx.tcx(), 0, Symbol::intern("T"));
+            let most_generic = extract_type_params(vcx.tcx(), param_type).0; 
+            deps.require_ref::<PredicateEnc>(most_generic)?; //this line is needed to force the generation of the predicate p_Param even if no types uses generic arguments 
+
             let p_ex = vcx.mk_local_ex("p", pair_encoder_ref.pair_type);
             let p_params_args = [
                 pair_encoder_ref.ref_accessor.apply(vcx, [p_ex]), 
@@ -120,6 +125,7 @@ where
                 .locals
                 .iter()
                 .skip(1) //skip the return value
+                .take(local_defs.arg_count) //only take the arguments
                 .map(|local_def| local_def.unsafe_cells)
                 .reduce(|lhs, rhs| vcx.mk_bin_op_expr(vir::BinOpKind::SetUnion, lhs, rhs))
                 .map(|set|
