@@ -3,7 +3,14 @@ use vir::{
     BinaryArity, CallableIdent, DomainIdent, DomainParamData, FunctionIdent, KnownArityAny, NullaryArity, PredicateIdent, TernaryArity, TypeData, UnaryArity, ViperIdent
 };
 
+use prusti_rustc_interface::span::Symbol;
+use prusti_rustc_interface::middle::ty;
+
+use crate::encoders::most_generic_ty::extract_type_params;
+
 use crate::encoders::pair_ref_type;
+
+use super::PredicateEnc;
 
 pub struct GenericEnc;
 
@@ -110,7 +117,14 @@ impl TaskEncoder for GenericEnc {
             &TYP_DOMAIN,
         );
 
+        
+
         vir::with_vcx(|vcx| {
+            let param_type = ty::Ty::new_param(vcx.tcx(), 0, Symbol::intern("T"));
+            let most_generic = extract_type_params(vcx.tcx(), param_type).0; 
+            deps.require_ref::<PredicateEnc>(most_generic)?; //this line is needed to force the generation of the predicate p_Param even if no types uses generic arguments 
+
+
             let t = vcx.mk_local_ex("t", &TYP_DOMAIN);
             let ref_to_snap = vcx.mk_function(
                 "p_Param_snap",

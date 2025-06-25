@@ -1,6 +1,6 @@
 use pcg::{borrow_pcg::borrow_checker::r#impl::BorrowCheckerImpl, r#loop::LoopAnalysis};
 use prusti_rustc_interface::middle::{ty, mir};
-use prusti_rustc_interface::span::Symbol;
+
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
 use vir::{MethodIdent, UnknownArity, ViperIdent};
 
@@ -111,9 +111,6 @@ where
             let pair_encoder_ref = deps.require_ref::<PairRefTypeEnc>(())?;
             let generic_encoder_ref = deps.require_ref::<GenericEnc>(())?;
 
-            let param_type = ty::Ty::new_param(vcx.tcx(), 0, Symbol::intern("T"));
-            let most_generic = extract_type_params(vcx.tcx(), param_type).0; 
-            deps.require_ref::<PredicateEnc>(most_generic)?; //this line is needed to force the generation of the predicate p_Param even if no types uses generic arguments 
 
             let p_ex = vcx.mk_local_ex("p", pair_encoder_ref.pair_type);
             let p_params_args = [
