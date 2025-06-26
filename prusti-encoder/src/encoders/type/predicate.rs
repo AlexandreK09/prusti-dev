@@ -4,7 +4,7 @@ use prusti_rustc_interface::{
 };
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
 use vir::{
-    BinaryArity, CallableIdent, Expr, FunctionIdent, MethodIdent, NullaryArity, PredicateIdent, TypeData, UnaryArity, UnknownArity, ViperIdent, VirCtxt
+    BinaryArity, CallableIdent, Expr, ExprGenData, FunctionIdent, MethodIdent, NullaryArity, PredicateIdent, TernaryArity, TypeData, UnaryArity, UnknownArity, ViperIdent, VirCtxt
 };
 
 use crate::encoders::{lifted::{casters::{CastTypePure, CastersEnc, CastersEncOutputRef}, ty_constructor::TyConstructorEnc}, pair_ref_type::PairRefTypeEnc, GenericEnc};
@@ -234,7 +234,8 @@ pub(crate) struct PredicateBuilder<'vir> {
         vir::Function<'vir>,
     )>,
     pub(crate) function_snap: Option<vir::Function<'vir>>,
-    pub p_param_get_unsafe_cells_post: Option<Expr<'vir>>
+    pub(crate) param_get_unsafe_cell_body: Option<Expr<'vir>>,
+    pub(crate) param_get_unsafe_cell_condition: Option<Expr<'vir>>,
 }
 
 impl<'vir> PredicateBuilder<'vir> {
@@ -249,7 +250,8 @@ impl<'vir> PredicateBuilder<'vir> {
             unreachable_to_snap: None,
             get_unsafe_cells: None,
             function_snap: None,
-            p_param_get_unsafe_cells_post: None,
+            param_get_unsafe_cell_body: None,
+            param_get_unsafe_cell_condition: None,
         }
     }
 
@@ -407,8 +409,8 @@ impl<'vir> PredicateBuilder<'vir> {
             get_unsafe_cells: self.get_unsafe_cells.unwrap().1,
             ref_to_field_refs: self.functions,
             method_assign: self.methods[0],
-            is_param: false,
-            p_param_get_unsafe_cells_post: self.p_param_get_unsafe_cells_post
+            param_get_unsafe_cell_body: self.param_get_unsafe_cell_body,
+            param_get_unsafe_cell_condition: self.param_get_unsafe_cell_condition,
         }
     }
 }
@@ -423,8 +425,8 @@ pub struct PredicateEncOutput<'vir> {
     pub get_unsafe_cells: vir::Function<'vir>,
     pub ref_to_field_refs: Vec<vir::Function<'vir>>,
     pub method_assign: vir::Method<'vir>,
-    pub is_param: bool,
-    pub p_param_get_unsafe_cells_post: Option<Expr<'vir>>
+    pub param_get_unsafe_cell_body: Option<Expr<'vir>> ,
+    pub param_get_unsafe_cell_condition: Option<Expr<'vir>>
 }
 
 impl TaskEncoder for PredicateEnc {
@@ -465,39 +467,44 @@ impl TaskEncoder for PredicateEnc {
                 )
             });
             let get_unsafe_cells = vir::with_vcx(|vcx| {
-                let name = "p_Param_get_all_UnsafeCells";
-                let return_type = vcx.mk_ty_set(&pair_output_ref.pair_type);
-                let ident = vir::FunctionIdent::new(
-                    vir::ViperIdent::new(name), 
-                    UnknownArity::new(vcx.alloc_slice(&[
-                        &TypeData::Ref,
-                        snap.snapshot,
-                        generic_output_ref.type_snapshot,
-                    ])),
-                    return_type
-                );
-                let self_decl = vcx.mk_local_decl("self", &TypeData::Ref);
-                let snap_local = vcx.mk_local("snap", snap.snapshot);
-                let snap_decl = vcx.mk_local_decl_local(snap_local);
+                let name= "p_Param_get_all_UnsafeCells";
+                let name_unknown = "p_Param_get_all_UnsafeCells_unknown";
+                let self_local = vcx.mk_local("self", &TypeData::Ref);
+                let self_ex = vcx.mk_local_ex_local(self_local);
+                let snap_local = vcx.mk_local("snap", generic_output_ref.param_snapshot);
                 let snap_ex = vcx.mk_local_ex_local(snap_local);
                 let t_local = vcx.mk_local("t", generic_output_ref.type_snapshot);
-                let t_decl = vcx.mk_local_decl_local(t_local);
                 let t_ex = vcx.mk_local_ex_local(t_local);
-                let args = vcx.alloc_slice(&[self_decl, snap_decl, t_decl]);
-
-                let snap_type = generic_output_ref.param_type_function.apply(vcx, [snap_ex]);
-                let precondition = vcx.mk_eq_expr(snap_type, t_ex);
-                (
-                    ident,
-                    vcx.mk_function(
-                        name, 
-                        args, 
-                        return_type, 
-                        vcx.alloc_slice(&[precondition]), 
-                        &[], 
-                        None
-                    )
-                )
+                let args = vcx.alloc_slice(&[
+                    vcx.mk_local_decl_local(self_local),
+                    vcx.mk_local_decl_local(snap_local),
+                    vcx.mk_local_decl_local(t_local)
+                ]);
+                let ret = vcx.mk_ty_set(pair_output_ref.pair_type);
+                let ident = vir::FunctionIdent::new(
+                    vir::ViperIdent::new(name),
+                    UnknownArity::new(vcx.alloc_slice(&[&TypeData::Ref, generic_output_ref.param_snapshot, generic_output_ref.type_snapshot])),
+                    ret
+                );
+                let ident_unknown = vir::FunctionIdent::new(
+                    vir::ViperIdent::new(name_unknown),
+                    TernaryArity::new(vcx.alloc_array(&[&TypeData::Ref, generic_output_ref.param_snapshot, generic_output_ref.type_snapshot])),
+                    ret
+                );
+                let unknown_function = vcx.mk_function(
+                    name_unknown, 
+                    args, 
+                    ret, 
+                    vcx.alloc_slice(&[vcx.mk_eq_expr(generic_output_ref.param_type_function.apply(vcx, [snap_ex]), t_ex)]),
+                    &[], 
+                    None
+                );
+                let unknown_function_app = ident_unknown.apply(vcx, [
+                    self_ex,
+                    snap_ex,
+                    t_ex,
+                ]);
+                (ident, unknown_function, unknown_function_app)
             });
             deps.emit_output_ref(
                 *task_key,
@@ -532,8 +539,8 @@ impl TaskEncoder for PredicateEnc {
                         get_unsafe_cells: get_unsafe_cells.1,
                         ref_to_field_refs: vec![],
                         method_assign,
-                        is_param: true,
-                        p_param_get_unsafe_cells_post: None,
+                        param_get_unsafe_cell_body: Some(get_unsafe_cells.2),
+                        param_get_unsafe_cell_condition: None
                     },
                     (),
                 ))
@@ -727,7 +734,7 @@ impl TaskEncoder for PredicateEnc {
                 _ => return Ok(None),
             };
             
-            //TODO: remove this blocks once each type has the function get_allUnsafeCells
+            //TODO: remove this blocks once each type have the function get_allUnsafeCells
             if builder.get_unsafe_cells.is_none(){
                 let args = &[ref_self_decl, snap_self_decl]
                             .into_iter()
@@ -746,38 +753,23 @@ impl TaskEncoder for PredicateEnc {
             }
 
             if let CastersEncOutputRef::Casters { make_concrete, .. } = casts{
-                let snap_ex: Expr = builder.vcx.mk_local_ex("snap", generic_output_ref.param_snapshot);
-                let t_expr: Expr = builder.vcx.mk_local_ex("t", generic_output_ref.type_snapshot);
-                let self_expr: Expr = builder.vcx.mk_local_ex("self", &TypeData::Ref);
-                let mut qvars =  Vec::new();
-                let mut qvars_ex = Vec::new();
-                for i in 0..generic_decls.len(){
-                    let var_local = builder.vcx.mk_local(vir::vir_format!(builder.vcx, "t{}", i), generic_output_ref.type_snapshot);
-                    let var_decl = builder.vcx.mk_local_decl_local(var_local);
-                    let var_ex = builder.vcx.mk_local_ex_local(var_local); 
-                    qvars.push(var_decl);
-                    qvars_ex.push(var_ex);
-                }
-                let concrete = make_concrete.apply(
-                    builder.vcx, 
-                    &[snap_ex].iter()
-                        .cloned()
-                        .chain(qvars_ex.iter().cloned())
-                        .collect::<Vec<_>>()
-                );
-                let type_instantiation = type_constructor.ty_constructor.apply(builder.vcx, &qvars_ex);
-                let condition = builder.vcx.mk_eq_expr(t_expr, type_instantiation);
-                let application = builder.get_unsafe_cells.unwrap().0.apply(
-                    builder.vcx, 
-                    &[self_expr, concrete].iter()
-                        .cloned()
-                        .chain(qvars_ex.iter().cloned())
-                        .collect::<Vec<_>>()
-                );
-                let conclusion = builder.vcx.mk_eq_expr(builder.vcx.mk_result(builder.vcx.mk_ty_set(&TypeData::Ref)), application);
-                let ternary = builder.vcx.mk_ternary_expr(condition, conclusion, builder.vcx.mk_bool_gen::<!,!,true>());
-                let postcondition = builder.vcx.mk_forall_expr(builder.vcx.alloc_slice(&qvars), &[], ternary);
-                builder.p_param_get_unsafe_cells_post = Some(postcondition);
+                let snap_ex = vcx.mk_local_ex("snap", generic_output_ref.param_snapshot);
+                let t_ex = vcx.mk_local_ex("t", generic_output_ref.type_snapshot);
+
+                let generic_args = type_constructor.ty_param_accessors.iter().map(|accessor|
+                    accessor.apply(vcx, [t_ex])
+                ).collect::<Vec<_>>();
+
+                let make_concrete_args = [snap_ex].into_iter().chain(generic_args.iter().cloned()).collect::<Vec<_>>();
+                let make_concrete_app = make_concrete.apply(vcx, &make_concrete_args);
+                
+                let self_ex = vcx.mk_local_ex("self", &TypeData::Ref);
+                let get_unsafe_cells_args = [self_ex, make_concrete_app].into_iter().chain(generic_args.iter().cloned()).collect::<Vec<_>>();
+
+                let body = builder.get_unsafe_cells.unwrap().0.apply(vcx, &get_unsafe_cells_args);
+                let condition = type_constructor.is_ty.apply(vcx, [t_ex]);
+                builder.param_get_unsafe_cell_body = Some(body);
+                builder.param_get_unsafe_cell_condition = Some(condition);
             }
 
             deps.emit_output_ref(
