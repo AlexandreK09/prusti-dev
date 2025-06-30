@@ -3,6 +3,7 @@ use crate::encoders::{
 };
 use crate::encoders::most_generic_ty::extract_type_params;
 use prusti_rustc_interface::middle::ty::{ParamTy, TyKind};
+use prusti_rustc_interface::middle::mir::Mutability;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
 use vir::{vir_format, Expr, FunctionIdent, PredicateIdent, ToKnownArity, UnknownArity};
 
@@ -240,7 +241,8 @@ fn field_expected_type_snapshot<'vir>(
             let param_idx = p.index as usize;
             Ok(generic_types[param_idx])
         }
-        TyKind::Adt(_, _) => {
+        TyKind::Adt(_, _)
+        | TyKind::Ref(_, _, _) => {
             let (most_generic, args) = extract_type_params(builder.vcx.tcx(), rust_ty);
             let ty_cons = deps.require_ref::<TyConstructorEnc>(most_generic)?;
             let mut args_expr = Vec::new();

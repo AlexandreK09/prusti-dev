@@ -12,7 +12,7 @@ pub mod request;
 use prusti_interface::{environment::EnvBody, PrustiError};
 use prusti_rustc_interface::{hir, middle::ty};
 use task_encoder::TaskEncoder;
-use vir::with_vcx;
+use vir::{with_vcx, ViperIdent};
 
 use crate::encoders::{
     lifted::{
@@ -138,10 +138,33 @@ pub fn test_entrypoint<'tcx>(
     }
 
     header(&mut viper_code, "type constructors");
+
+    let mut type_constructors = Vec::new();
+
     for output in TyConstructorEnc::all_outputs() {
         viper_code.push_str(&format!("{:?}\n", output.domain));
         program_domains.push(output.domain);
+
+        type_constructors.push(output);
     }
+
+    let type_disjunction = vir::with_vcx(|vcx|{
+        let mut axioms = Vec::new();
+        for i in 0..type_constructors.len(){
+            for j in i+1..type_constructors.len(){
+                axioms.push(type_constructors[i].disjoint_type(&type_constructors[j], vcx, &vir::TypeData::Domain("Type", &[])));
+            }
+        }
+        vcx.mk_domain(
+            ViperIdent::new("type_disjunction"), 
+            &[], 
+            vcx.alloc_slice(&axioms), 
+            &[]
+        )
+    });
+
+    viper_code.push_str(&format!("{:?}\n", type_disjunction));
+    program_domains.push(type_disjunction);
 
     header(&mut viper_code, "types");
 

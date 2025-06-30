@@ -1,5 +1,5 @@
 use task_encoder::{EncodeFullResult, OutputRefAny, TaskEncoder};
-use vir::{vir_format_identifier, CallableIdent, FunctionIdent, UnaryArity, UnknownArity};
+use vir::{vir_format_identifier, CallableIdent, DomainAxiomData, DomainAxiomGen, DomainAxiomGenData, FunctionIdent, UnaryArity, UnknownArity, VirCtxt};
 
 use crate::encoders::{
     most_generic_ty::{extract_type_params, MostGenericTy},
@@ -31,6 +31,40 @@ impl<'vir> OutputRefAny for TyConstructorEncOutputRef<'vir> {}
 #[derive(Clone)]
 pub struct TyConstructorEncOutput<'vir> {
     pub domain: vir::Domain<'vir>,
+    pub constructor_ident: FunctionIdent<'vir, UnknownArity<'vir>>,
+}
+
+impl<'vir> TyConstructorEncOutput<'vir> {
+    pub fn disjoint_type<Curr, Next>(&self, other: &TyConstructorEncOutput<'vir>, vcx: &'vir VirCtxt, type_t: &'vir vir::TypeData<'vir>) -> DomainAxiomGen<'vir, Curr, Next>{
+        let typarams_count_self = self.constructor_ident.arity().len();
+        let typarams_count_other = other.constructor_ident.arity().len();
+        let locals_self = (0..typarams_count_self).map(|i| vcx.mk_local(&vir::vir_format!(vcx, "t{}", i), type_t)).collect::<Vec<_>>();
+        let locals_other = (typarams_count_self..typarams_count_self+typarams_count_other).map(|i| vcx.mk_local(&vir::vir_format!(vcx, "t{}", i), type_t)).collect::<Vec<_>>();
+
+        let self_app = self.constructor_ident.apply(vcx, vcx.alloc_slice(&locals_self.iter().map(|local| vcx.mk_local_ex_local(local)).collect::<Vec<_>>()));
+        let other_app = other.constructor_ident.apply(vcx, vcx.alloc_slice(&locals_other.iter().map(|local| vcx.mk_local_ex_local(local)).collect::<Vec<_>>()));
+
+        let qvars = vcx.alloc_slice(&locals_self.iter().chain(locals_other.iter()).map(|local| vcx.mk_local_decl_local(local)).collect::<Vec<_>>());
+        let mut triggers_list = Vec::new();
+        if typarams_count_self > 0{
+            triggers_list.push(self_app);
+        }
+        if typarams_count_other > 0{
+            triggers_list.push(other_app);
+        }
+        let triggers = vcx.alloc_slice(&[vcx.mk_trigger(vcx.alloc_slice(&triggers_list))]);
+
+        let forall = vcx.mk_forall_expr(
+            qvars, 
+            triggers, 
+            vcx.mk_bin_op_expr(vir::BinOpKind::CmpNe, self_app, other_app)
+        );
+
+        vcx.mk_domain_axiom(
+            vir::vir_format_identifier!(vcx, "ax_disjoint_{}_{}", self.domain.name, other.domain.name), 
+            forall
+        )
+    }
 }
 
 /// Encodes the lifted representation of a Rust type constructor (e.g. Option,
@@ -185,6 +219,7 @@ impl TaskEncoder for TyConstructorEnc {
                     vcx.alloc_slice(&axioms),
                     vcx.alloc_slice(&functions),
                 ),
+                constructor_ident: type_function_ident
             };
             Ok((result, ()))
         })
