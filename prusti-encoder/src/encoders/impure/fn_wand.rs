@@ -1,5 +1,5 @@
 use crate::encoders::{
-    indirect::{IndirectKey, IndirectPredicatesEnc},
+    indirect::{self, IndirectKey, IndirectPredicatesEnc},
     ImpureEncVisitor, MirLocalDefEncOutput, MirSpecEnc,
 };
 use pcg::borrow_pcg::{state::BorrowsState, unblock_graph::UnblockGraph};
@@ -11,6 +11,7 @@ use prusti_rustc_interface::{
     span::{def_id::DefId, Span},
 };
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
+use vir::Reify;
 
 /// Encodes the magic wands given a function signature.
 pub struct WandEnc;
@@ -75,6 +76,24 @@ impl<'vir> WandEncOutput<'vir> {
     ) -> impl Iterator<Item = vir::Expr<'vir>> + 'a {
         self.outputs()
             .map(|g| self.encode_generic(vcx, deps, g, false, |i| local_defs.locals[i].impure_snap))
+    }
+
+    pub fn unsafe_cells<'a, E: TaskEncoder>(
+        &'a self,
+        vcx: &'vir vir::VirCtxt<'vir>,
+        local_defs: &'a MirLocalDefEncOutput<'vir>,
+        deps: &'a mut TaskEncoderDependencies<'vir, E>,
+    ){
+        for g in self.inputs(){
+            for (i, ty) in &self.generic_to_param[&g]{
+                let indirect = deps.require_ref::<IndirectPredicatesEnc>((*ty, g)).unwrap();
+                let snap = local_defs.locals[*i].impure_snap;
+                for e in indirect.unsafe_cells{
+                    let expr = e.reify(vcx, snap);
+                    println!("expr:\n {:?}\n", expr);
+                }
+            }
+        }
     }
 
     pub fn wand_posts<'a, E: TaskEncoder>(

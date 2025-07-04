@@ -1,11 +1,11 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainEnc, DomainEncOutputRef, FieldFunctions, FieldTy}, lifted::ty_constructor::TyConstructorEnc, pair_ref_type::PairRefTypeOutputRef, predicate::PredicateBuilder, rust_ty_predicates::RustTyPredicatesEncOutputRef, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
+    domain::{DomainBuilder, DomainEnc, DomainEncOutputRef, FieldFunctions, FieldTy}, lifted::{ty::{EncodeGenericsAsParamTy, LiftedTy, LiftedTyEnc}, ty_constructor::TyConstructorEnc}, pair_ref_type::PairRefTypeOutputRef, predicate::PredicateBuilder, rust_ty_predicates::RustTyPredicatesEncOutputRef, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
 };
 use crate::encoders::most_generic_ty::extract_type_params;
 use prusti_rustc_interface::middle::ty::{ParamTy, TyKind};
 use prusti_rustc_interface::middle::mir::Mutability;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
-use vir::{vir_format, Expr, FunctionIdent, PredicateIdent, ToKnownArity, UnknownArity};
+use vir::{vir_format, Expr, FunctionIdent, PredicateIdent, ToKnownArity, UnknownArity, VirCtxt};
 
 use prusti_rustc_interface::middle::ty::Ty;
 
@@ -136,7 +136,8 @@ pub fn domain<'vir>(
             [field_type_domain.typeof_function]([local])
         };
         
-        let expected_type = field_expected_type_snapshot(field.rust_ty, &generic_types, deps, builder)?;
+        let lifted = deps.require_local::<LiftedTyEnc<EncodeGenericsAsParamTy>>(field.rust_ty)?;
+        let expected_type = type_snapshot_with_generic_expr(lifted, &generic_types, builder.vcx);
         let eq = builder.vcx.mk_eq_expr(actual_type, expected_type);
         cons_read_preconditions.push(eq);
     }
@@ -171,7 +172,9 @@ pub fn domain<'vir>(
 
         let generic_types = output_ref.ty_param_accessors.iter().map(|acc| acc.apply(builder.vcx, [typeof_snap_expr])).collect::<Vec<_>>();
 
-        let rhs = field_expected_type_snapshot(fields[idx].rust_ty, &generic_types, deps, builder)?;
+        let lifted = deps.require_local::<LiftedTyEnc<EncodeGenericsAsParamTy>>(fields[idx].rust_ty)?;
+
+        let rhs = type_snapshot_with_generic_expr(lifted, &generic_types, builder.vcx);
         let lhs = {
             let most_generic = extract_type_params(builder.vcx.tcx.unwrap(), fields[idx].rust_ty).0;
             let output_ref = deps.require_ref::<DomainEnc>(most_generic)?;
@@ -220,46 +223,12 @@ pub fn domain<'vir>(
     ))
 }
 
-fn field_expected_type_snapshot<'vir>(
-    rust_ty: Ty<'vir>,
+fn type_snapshot_with_generic_expr<'vir>(
+    lifted: LiftedTy<'vir, ParamTy>,
     generic_types: &[Expr<'vir>],
-    deps: &mut TaskEncoderDependencies<'vir, DomainEnc>,
-    builder: &mut DomainBuilder<'vir>
-) -> Result<Expr<'vir>, EncodeFullError<'vir, DomainEnc>>{
-    match rust_ty.kind(){
-        TyKind::Bool
-        | TyKind::Char
-        | TyKind::Int(_)
-        | TyKind::Uint(_)
-        | TyKind::Float(_)
-        | TyKind::Str
-        | TyKind::Never => {
-            let ty_cons = deps.require_ref::<TyConstructorEnc>(extract_type_params(builder.vcx.tcx(), rust_ty).0)?;
-            Ok(ty_cons.ty_constructor.apply(builder.vcx, &[]))
-        }
-        TyKind::Param(p) => {
-            let param_idx = p.index as usize;
-            Ok(generic_types[param_idx])
-        }
-        TyKind::Adt(_, _)
-        | TyKind::Ref(_, _, _) => {
-            let (most_generic, args) = extract_type_params(builder.vcx.tcx(), rust_ty);
-            let ty_cons = deps.require_ref::<TyConstructorEnc>(most_generic)?;
-            let mut args_expr = Vec::new();
-            for t in args{
-                args_expr.push(field_expected_type_snapshot(t, generic_types, deps, builder)?);
-            }
-            Ok(
-                ty_cons.ty_constructor.apply(
-                    builder.vcx,
-                    builder.vcx.alloc_slice(
-                        &args_expr
-                    )
-                )
-            )
-        }
-        _ => todo!()
-    }
+    vcx: &'vir VirCtxt<'vir>
+) -> Expr<'vir>{
+    lifted.map(vcx, &mut |g: ParamTy| generic_types[g.index as usize]).expr(vcx)
 }
 
 pub(crate) fn predicate<'vir>(

@@ -1,8 +1,12 @@
+use std::cell::UnsafeCell;
+
 use prusti_rustc_interface::middle::ty::{self};
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
 use vir::Reify;
 
-use super::{rust_ty_predicates::RustTyPredicatesEnc, rust_ty_snapshots::RustTySnapshotsEnc};
+use crate::encoders::{indirect, kinds::param, lifted::ty::{EncodeGenericsAsLifted, LiftedTyEnc}, most_generic_ty};
+
+use super::{lifted::{self, casters::{CastTypePure, CastersEnc, CastersEncOutputRef}}, most_generic_ty::extract_type_params, rust_ty_predicates::RustTyPredicatesEnc, rust_ty_snapshots::RustTySnapshotsEnc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IndirectKey {
@@ -43,10 +47,11 @@ pub struct IndirectPredicatesEnc;
 type ExprInput<'vir> = vir::Expr<'vir>;
 type ExprOutput<'vir> = vir::ExprGen<'vir, ExprInput<'vir>, vir::ExprKind<'vir>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IndirectPredicatesEncOutputRef<'vir> {
     pub covariant: Vec<ExprOutput<'vir>>,
     pub contravariant: Vec<ExprOutput<'vir>>,
+    pub unsafe_cells: Vec<ExprOutput<'vir>>,
 }
 
 impl<'vir> task_encoder::OutputRefAny for IndirectPredicatesEncOutputRef<'vir> {}
@@ -76,6 +81,7 @@ impl TaskEncoder for IndirectPredicatesEnc {
             let self_ty_enc = deps.require_local::<RustTySnapshotsEnc>(*ty)?;
             let mut covariant = Vec::new();
             let mut contravariant = Vec::new();
+            let mut unsafe_cells = Vec::new();
             match ty.kind() {
                 ty::TyKind::Ref(ref_region, inner_ty, ty::Mutability::Mut) => {
                     let deref_access = self_ty_enc
@@ -118,6 +124,65 @@ impl TaskEncoder for IndirectPredicatesEnc {
                         .collect::<Vec<_>>();
                     covariant.extend(inner.clone());
                     contravariant.extend(inner);
+
+
+                    // //todo check that old is used correctly (using let y == ... in old(...))
+                    // unsafe_cells.extend(
+                    //     inner_indirect
+                    //     .unsafe_cells
+                    //     .clone()
+                    //     .into_iter()
+                    //     .map(|inner_expr| {
+                    //         vcx.mk_lazy_expr(
+                    //             "ref_inner_indirect",
+                    //             &vir::TypeData::Predicate,
+                    //             Box::new(move |vcx, self_expr| {
+                    //                 inner_expr
+                    //                     .reify(vcx, deref_access.apply(vcx, [self_expr]))
+                    //                     .kind
+                    //             }),
+                    //         )
+                    //     })
+                    // );
+                    // unsafe_cells.extend(
+                    //     inner_indirect
+                    //     .unsafe_cells
+                    //     .into_iter()
+                    //     .map(|inner_expr| {
+                    //         vcx.mk_lazy_expr(
+                    //             "ref_inner_indirect",
+                    //             &vir::TypeData::Predicate,
+                    //             Box::new(move |vcx, self_expr| {
+                    //                 inner_expr
+                    //                     .reify(vcx, vcx.mk_old_expr(deref_access.apply(vcx, [self_expr])))
+                    //                     .kind
+                    //             }),
+                    //         )
+                    //     })
+                    // );
+                }
+                ty::TyKind::Ref(ref_region, inner_ty, ty::Mutability::Not) => {
+                    let deref_access = self_ty_enc
+                        .generic_snapshot
+                        .specifics
+                        .expect_immref()
+                        .deref_access;
+                    if IndirectKey::from_region(*ref_region)
+                        .is_some_and(|indirect| &indirect == proj_region)
+                    {
+                        let inner_ty_enc = deps.require_ref::<RustTyPredicatesEnc>(*inner_ty)?;
+                        unsafe_cells.push(vcx.mk_lazy_expr(
+                            "ref_indirect",
+                            &vir::TypeData::Predicate,
+                            Box::new(move |vcx, self_expr| {
+                                let self_ref = deref_access.apply(vcx, [self_expr]);
+                                let snap = inner_ty_enc.ref_to_snap(vcx, self_ref);
+                                inner_ty_enc
+                                    .ref_to_get_unsafe_cells(vcx, self_ref, snap)
+                                    .kind
+                            }),
+                        ));
+                    }
                 }
                 ty::TyKind::Tuple(params) => {
                     let field_accessors = self_ty_enc
@@ -126,24 +191,63 @@ impl TaskEncoder for IndirectPredicatesEnc {
                         .expect_structlike()
                         .field_access;
                     for (field_ty, accessor) in params.into_iter().zip(field_accessors) {
-                        let project = |inner_expr: ExprOutput<'vir>| {
-                            vcx.mk_lazy_expr(
-                                "ref_inner_indirect",
-                                &vir::TypeData::Predicate,
-                                Box::new(move |vcx, self_expr| {
-                                    inner_expr
-                                        .reify(vcx, accessor.read.apply(vcx, [self_expr]))
-                                        .kind
-                                }),
-                            )
-                        };
+                        let (most_generic, typarams) = extract_type_params(vcx.tcx(), field_ty);
+                        let caster = deps.require_ref::<CastersEnc<CastTypePure>>(most_generic)?;
 
-                        // TODO: tuple generics need to be passed to field accessors
-                        // TODO: tuple fields need to be (snapshot) cast
-                        let field_indirect =
-                            deps.require_ref::<IndirectPredicatesEnc>((field_ty, *proj_region))?;
-                        covariant.extend(field_indirect.covariant.into_iter().map(project));
-                        contravariant.extend(field_indirect.contravariant.into_iter().map(project));
+                        if let CastersEncOutputRef::Casters { make_concrete, .. } = caster {
+                            let cast_args = typarams.into_iter().map(|typaram| {
+                                let lifted = deps.require_local::<LiftedTyEnc<EncodeGenericsAsLifted>>(typaram)?;
+                                Ok(lifted.expr(vcx))
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                            let cast_args = vcx.alloc_slice(&cast_args);
+
+                            let project = |inner_expr: ExprOutput<'vir>, cast_args: &'vir [&'vir vir::ExprGenData<'vir, !, !>]| {
+                                vcx.mk_lazy_expr(
+                                    "ref_inner_indirect",
+                                    &vir::TypeData::Predicate,
+                                    Box::new(move |vcx, self_expr| {
+                                        let s_param = accessor.read.apply(vcx, [self_expr]);
+                                        let reify_arg = make_concrete.apply(
+                                            vcx, 
+                                            vcx.alloc_slice(
+                                                &[s_param].iter()
+                                                    .chain(cast_args.iter())
+                                                    .cloned()
+                                                    .collect::<Vec<_>>()
+                                            )
+                                        );
+                                        inner_expr
+                                            .reify(vcx, reify_arg)
+                                            .kind
+                                    }),
+                                )
+                            };
+
+                            let field_indirect =
+                                deps.require_ref::<IndirectPredicatesEnc>((field_ty, *proj_region))?;
+                            covariant.extend(field_indirect.covariant.into_iter().map(|e| project(e, cast_args)));
+                            contravariant.extend(field_indirect.contravariant.into_iter().map(|e| project(e, cast_args)));
+                            unsafe_cells.extend(field_indirect.unsafe_cells.into_iter().map(|e| project(e, cast_args)));
+                        }else {
+                            let project = |inner_expr: ExprOutput<'vir>| {
+                                vcx.mk_lazy_expr(
+                                    "ref_inner_indirect",
+                                    &vir::TypeData::Predicate,
+                                    Box::new(move |vcx, self_expr| {
+                                        inner_expr
+                                            .reify(vcx, accessor.read.apply(vcx, [self_expr]))
+                                            .kind
+                                    }),
+                                )
+                            };
+
+                            let field_indirect =
+                                deps.require_ref::<IndirectPredicatesEnc>((field_ty, *proj_region))?;
+                            covariant.extend(field_indirect.covariant.into_iter().map(project));
+                            contravariant.extend(field_indirect.contravariant.into_iter().map(project));
+                            unsafe_cells.extend(field_indirect.unsafe_cells.into_iter().map(project));
+                        }
                     }
                 }
                 // TODO: recurse into other types
@@ -154,6 +258,7 @@ impl TaskEncoder for IndirectPredicatesEnc {
                 IndirectPredicatesEncOutputRef {
                     covariant,
                     contravariant,
+                    unsafe_cells
                 },
             )?;
             Ok(((), ()))
