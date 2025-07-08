@@ -2,7 +2,7 @@ use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
 
 use crate::encoders::{
-    domain::{DomainBuilder, DomainEnc, DomainEncSpecifics}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData}, snapshot::SnapshotEncOutput, PredicateEnc
+    domain::{DomainBuilder, DomainEnc, DomainEncSpecifics}, pair_ref_type::{self, PairRefTypeOutputRef}, predicate::{PredicateBuilder, PredicateEncData}, snapshot::SnapshotEncOutput, PairRefTypeEnc, PredicateEnc
 };
 
 pub(crate) fn domain<'vir>(
@@ -18,7 +18,7 @@ pub(crate) fn predicate<'vir>(
     _task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
     pair: &PairRefTypeOutputRef<'vir>,
-    _deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
+    deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     builder: &mut PredicateBuilder<'vir>,
 ) -> Result<PredicateEncData<'vir>, EncodeFullError<'vir, PredicateEnc>> {
     // let ty = task_key.ty();
@@ -49,6 +49,8 @@ pub(crate) fn predicate<'vir>(
     let snap_self = builder.vcx.mk_local("snap", snap_type);
     let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
 
+    let pair_ref_type = deps.require_ref::<PairRefTypeEnc>(())?;
+
     builder.get_unsafe_cells = Some(
         builder
             .mk_function(
@@ -59,7 +61,7 @@ pub(crate) fn predicate<'vir>(
                 &[], 
                 Some(
                     vir::expr! {
-                        Set([&vir::TypeData::Ref]())
+                        Set([pair_ref_type.pair_type]())
                     }
                 )
             )

@@ -1,4 +1,4 @@
-use std::cell::UnsafeCell;
+use std::{cell::UnsafeCell, iter::once};
 
 use prusti_rustc_interface::middle::ty::{self};
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
@@ -93,16 +93,32 @@ impl TaskEncoder for IndirectPredicatesEnc {
                         .is_some_and(|indirect| &indirect == proj_region)
                     {
                         let inner_ty_enc = deps.require_ref::<RustTyPredicatesEnc>(*inner_ty)?;
-                        covariant.push(vcx.mk_lazy_expr(
+                        covariant.push({
+                            let inner_ty_enc = inner_ty_enc.clone();
+                            vcx.mk_lazy_expr(
+                                "ref_indirect",
+                                &vir::TypeData::Predicate,
+                                Box::new(move |vcx, self_expr| {
+                                    inner_ty_enc
+                                        .ref_to_pred(vcx, deref_access.apply(vcx, [self_expr]), None)
+                                        .kind
+                                }),
+                            )
+                        });
+                        //Todo: also add "old" where needed 
+                        unsafe_cells.push(vcx.mk_lazy_expr(
                             "ref_indirect",
                             &vir::TypeData::Predicate,
                             Box::new(move |vcx, self_expr| {
+                                let self_ref = deref_access.apply(vcx, [self_expr]);
+                                let snap = inner_ty_enc.ref_to_snap(vcx, self_ref);
                                 inner_ty_enc
-                                    .ref_to_pred(vcx, deref_access.apply(vcx, [self_expr]), None)
+                                    .ref_to_get_unsafe_cells(vcx, self_ref, snap)
                                     .kind
                             }),
                         ));
                     }
+
                     // TODO: is this correct??? do we always project into the inner type, regardless of region?
                     let inner_indirect =
                         deps.require_ref::<IndirectPredicatesEnc>((*inner_ty, *proj_region))?;
@@ -125,41 +141,6 @@ impl TaskEncoder for IndirectPredicatesEnc {
                     covariant.extend(inner.clone());
                     contravariant.extend(inner);
 
-
-                    // //todo check that old is used correctly (using let y == ... in old(...))
-                    // unsafe_cells.extend(
-                    //     inner_indirect
-                    //     .unsafe_cells
-                    //     .clone()
-                    //     .into_iter()
-                    //     .map(|inner_expr| {
-                    //         vcx.mk_lazy_expr(
-                    //             "ref_inner_indirect",
-                    //             &vir::TypeData::Predicate,
-                    //             Box::new(move |vcx, self_expr| {
-                    //                 inner_expr
-                    //                     .reify(vcx, deref_access.apply(vcx, [self_expr]))
-                    //                     .kind
-                    //             }),
-                    //         )
-                    //     })
-                    // );
-                    // unsafe_cells.extend(
-                    //     inner_indirect
-                    //     .unsafe_cells
-                    //     .into_iter()
-                    //     .map(|inner_expr| {
-                    //         vcx.mk_lazy_expr(
-                    //             "ref_inner_indirect",
-                    //             &vir::TypeData::Predicate,
-                    //             Box::new(move |vcx, self_expr| {
-                    //                 inner_expr
-                    //                     .reify(vcx, vcx.mk_old_expr(deref_access.apply(vcx, [self_expr])))
-                    //                     .kind
-                    //             }),
-                    //         )
-                    //     })
-                    // );
                 }
                 ty::TyKind::Ref(ref_region, inner_ty, ty::Mutability::Not) => {
                     let deref_access = self_ty_enc
@@ -170,13 +151,42 @@ impl TaskEncoder for IndirectPredicatesEnc {
                     if IndirectKey::from_region(*ref_region)
                         .is_some_and(|indirect| &indirect == proj_region)
                     {
+                        let (most_generic, typarams) = extract_type_params(vcx.tcx(), *inner_ty);
+                        let caster = deps.require_ref::<CastersEnc<CastTypePure>>(most_generic)?;
+                        let caster = match caster{
+                            CastersEncOutputRef::AlreadyGeneric => None,
+                            CastersEncOutputRef::Casters { make_concrete, .. } => {
+                                let typarams_expr = typarams.into_iter()
+                                    .map(|ty| {
+                                        let lifted = deps.require_local::<LiftedTyEnc<EncodeGenericsAsLifted>>(ty)?;
+                                        Ok(lifted.expr(vcx))
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()?;
+                                Some((make_concrete, typarams_expr))
+                            }
+                        };
                         let inner_ty_enc = deps.require_ref::<RustTyPredicatesEnc>(*inner_ty)?;
                         unsafe_cells.push(vcx.mk_lazy_expr(
                             "ref_indirect",
                             &vir::TypeData::Predicate,
                             Box::new(move |vcx, self_expr| {
                                 let self_ref = deref_access.apply(vcx, [self_expr]);
-                                let snap = inner_ty_enc.ref_to_snap(vcx, self_ref);
+                                let s_param = self_ty_enc.generic_snapshot
+                                    .specifics
+                                    .expect_immref()
+                                    .value_access
+                                    .apply(vcx, [self_expr]);
+                                let snap = match &caster {
+                                    None => s_param,
+                                    Some((make_concrete, typarams)) => make_concrete.apply(
+                                        vcx, 
+                                        vcx.alloc_slice(
+                                            &once(s_param)
+                                            .chain(typarams.iter().cloned())
+                                            .collect::<Vec<_>>()
+                                        )
+                                    )
+                                };
                                 inner_ty_enc
                                     .ref_to_get_unsafe_cells(vcx, self_ref, snap)
                                     .kind

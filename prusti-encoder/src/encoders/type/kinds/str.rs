@@ -1,5 +1,5 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataStruct, DomainEnc, DomainEncSpecifics}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct}, snapshot::SnapshotEncOutput, PredicateEnc
+    domain::{DomainBuilder, DomainDataStruct, DomainEnc, DomainEncSpecifics}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct}, snapshot::SnapshotEncOutput, PairRefTypeEnc, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -77,6 +77,8 @@ pub(crate) fn predicate<'vir>(
             .1,
     );
 
+    let pair_ref_type = deps.require_ref::<PairRefTypeEnc>(())?;
+
     builder.get_unsafe_cells = Some(
         builder
             .mk_function(
@@ -87,7 +89,7 @@ pub(crate) fn predicate<'vir>(
                 &[], 
                 Some(
                     vir::expr! {
-                        Set([&vir::TypeData::Ref]())
+                        Set([pair_ref_type.pair_type]())
                     }
                 )
             )

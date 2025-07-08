@@ -1,6 +1,5 @@
 use crate::encoders::{
-    indirect::{self, IndirectKey, IndirectPredicatesEnc},
-    ImpureEncVisitor, MirLocalDefEncOutput, MirSpecEnc,
+    indirect::{self, IndirectKey, IndirectPredicatesEnc}, GenericEnc, ImpureEncVisitor, MirLocalDefEncOutput, MirSpecEnc, PairRefTypeEnc
 };
 use pcg::borrow_pcg::{state::BorrowsState, unblock_graph::UnblockGraph};
 use prusti_interface::{environment::EnvQuery, PrustiError};
@@ -11,7 +10,7 @@ use prusti_rustc_interface::{
     span::{def_id::DefId, Span},
 };
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
-use vir::Reify;
+use vir::{Expr, Reify};
 
 /// Encodes the magic wands given a function signature.
 pub struct WandEnc;
@@ -78,22 +77,42 @@ impl<'vir> WandEncOutput<'vir> {
             .map(|g| self.encode_generic(vcx, deps, g, false, |i| local_defs.locals[i].impure_snap))
     }
 
-    pub fn unsafe_cells<'a, E: TaskEncoder>(
+    pub fn unsafe_cells_post<'a, E: TaskEncoder>(
         &'a self,
         vcx: &'vir vir::VirCtxt<'vir>,
         local_defs: &'a MirLocalDefEncOutput<'vir>,
         deps: &'a mut TaskEncoderDependencies<'vir, E>,
-    ){
+    ) -> Option<Expr<'vir>>{
+        let mut sets = Vec::new();
         for g in self.inputs(){
             for (i, ty) in &self.generic_to_param[&g]{
                 let indirect = deps.require_ref::<IndirectPredicatesEnc>((*ty, g)).unwrap();
-                let snap = local_defs.locals[*i].impure_snap;
+                let mut snap = local_defs.locals[*i].impure_snap;
+                if *i != mir::RETURN_PLACE{
+                    snap = vcx.mk_old_expr(snap);
+                }
                 for e in indirect.unsafe_cells{
                     let expr = e.reify(vcx, snap);
-                    println!("expr:\n {:?}\n", expr);
+                    sets.push(expr);
                 }
             }
         }
+        let set = sets.into_iter().reduce(|e1,  e2| vcx.mk_bin_op_expr(vir::BinOpKind::SetUnion, e1, e2));
+        
+        let pair_encoder_ref = deps.require_ref::<PairRefTypeEnc>(()).unwrap();
+        let generic_encoder_ref = deps.require_ref::<GenericEnc>(()).unwrap();
+
+        let p_ex = vcx.mk_local_ex("p", pair_encoder_ref.pair_type);
+        let p_params_args = [
+            pair_encoder_ref.ref_accessor.apply(vcx, [p_ex]), 
+            pair_encoder_ref.type_accessor.apply(vcx, [p_ex]),
+        ];
+        
+        set.map(|set|{
+            vir::expr!{
+                forall p: [pair_encoder_ref.pair_type] :: ((p) in (set)) ==> ([generic_encoder_ref.ref_to_pred.as_unknown_arity()](..[p_params_args]))
+            }
+        })
     }
 
     pub fn wand_posts<'a, E: TaskEncoder>(

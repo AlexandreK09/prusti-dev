@@ -108,7 +108,9 @@ where
             posts.extend(wands.indirect_posts(vcx, &local_defs, deps));
             posts.extend(wands.wand_posts(vcx, &local_defs, deps));
 
-            wands.unsafe_cells(vcx, &local_defs, deps);
+            if let Some(expr) = wands.unsafe_cells_post(vcx, &local_defs, deps){
+                posts.push(expr);
+            }
 
             let pair_encoder_ref = deps.require_ref::<PairRefTypeEnc>(())?;
             let generic_encoder_ref = deps.require_ref::<GenericEnc>(())?;
