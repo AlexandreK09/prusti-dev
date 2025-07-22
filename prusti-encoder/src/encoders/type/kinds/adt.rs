@@ -2,10 +2,17 @@ use crate::encoders::{
     domain::{
         DomainBuilder, DomainDataEnum, DomainDataStruct, DomainDataVariant, DomainEnc,
         DomainEncOutputRef, DomainEncSpecifics, FieldTy,
-    }, lifted::{ty::{EncodeGenericsAsParamTy, LiftedTyEnc}, ty_constructor::TyConstructorEnc}, pair_ref_type::{self, PairRefTypeOutputRef}, predicate::{
+    }, 
+    lifted::{ty::{EncodeGenericsAsParamTy, LiftedTyEnc}, ty_constructor::TyConstructorEnc}, 
+    pair_ref_type::{self, PairRefTypeOutputRef}, 
+    predicate::{
         PredicateBuilder, PredicateEncData, PredicateEncDataEnum, PredicateEncDataStruct,
         PredicateEncDataVariant,
-    }, rust_ty_predicates::RustTyPredicatesEnc, rust_ty_snapshots::RustTySnapshotsEnc, snapshot::SnapshotEncOutput, PredicateEnc
+    }, 
+    rust_ty_predicates::RustTyPredicatesEnc, 
+    rust_ty_snapshots::RustTySnapshotsEnc, 
+    snapshot::SnapshotEncOutput, 
+    PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
