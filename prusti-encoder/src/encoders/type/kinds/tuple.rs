@@ -1,12 +1,7 @@
 use crate::encoders::{
     domain::{
         DomainBuilder, DomainDataStruct, DomainEnc, DomainEncOutputRef, DomainEncSpecifics, FieldTy,
-    },
-    lifted::ty::{EncodeGenericsAsParamTy, LiftedTyEnc},
-    predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct},
-    rust_ty_predicates::RustTyPredicatesEnc,
-    snapshot::SnapshotEncOutput,
-    PredicateEnc,
+    }, lifted::{ty::{EncodeGenericsAsParamTy, LiftedTyEnc}, ty_constructor::TyConstructorEnc}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct}, rust_ty_predicates::RustTyPredicatesEnc, snapshot::SnapshotEncOutput, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -98,6 +93,7 @@ pub(crate) fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
+    pair: &PairRefTypeOutputRef<'vir>,
     deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     generic_decls: &[vir::LocalDeclTyVal<'vir>],
     generic_exprs: &[vir::ExprTyVal<'vir>],
@@ -125,11 +121,13 @@ pub(crate) fn predicate<'vir>(
         .map(|ty| deps.require_ref::<RustTyPredicatesEnc>(ty))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let (field_accessors, self_pred, snap_expr) = super::structlike::predicate(
+    let (field_accessors, self_pred, snap_expr, get_unsafe_cells_expr) = super::structlike::predicate(
         "",
         &fields,
+        snap_data.field_access,
         task_key,
         &snap,
+        pair,
         snap_data.field_snaps_to_snap,
         deps,
         generic_decls,
@@ -158,6 +156,34 @@ pub(crate) fn predicate<'vir>(
                 Some(snap_expr),
             )
             .1,
+    );
+
+    let snap_local = builder.vcx.mk_local("snap", snap_type);
+    let snap_decl = builder.vcx.mk_local_decl_local(snap_local);
+
+    let domain_enc_output_ref = deps.require_ref::<DomainEnc>(task_key)?;
+    let ty_constructor_enc_output_ref = deps.require_ref::<TyConstructorEnc>(task_key)?;
+
+    let snap_ex = builder.vcx.mk_local_ex_local(snap_local);
+
+    let typeof_snap = domain_enc_output_ref.typeof_function.gen()(snap_ex.upcast_ty());
+
+    builder.get_unsafe_cells = Some(
+        builder
+            .mk_function(
+                "get_all_UnsafeCells", 
+                (ref_self_decl.ty(), snap_decl.ty().upcast_ty(), generic_decls_tys),
+                builder.vcx.mk_ty_set(vir::TYPE_PAIR),
+                (ref_self_decl, snap_decl.upcast_ty(), generic_decls), 
+                &ty_constructor_enc_output_ref.ty_param_accessors
+                    .iter()
+                    .map(|f| f.gen()(typeof_snap))
+                    .zip(generic_exprs.iter().cloned())
+                    .map(|(lhs, rhs)| builder.vcx.mk_eq_expr(lhs, rhs))
+                    .collect::<Vec<_>>(), 
+                &[], 
+                Some(get_unsafe_cells_expr)
+            )
     );
 
     Ok(PredicateEncData::StructLike(PredicateEncDataStruct {

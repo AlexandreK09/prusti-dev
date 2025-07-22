@@ -24,10 +24,10 @@ impl<'vir> ViperTupleEncOutput<'vir> {
 
     pub fn mk_cons<'tcx, Curr, Next>(
         &self,
-        _vcx: &'vir vir::VirCtxt<'tcx>,
+        vcx: &'vir vir::VirCtxt<'tcx>,
         elems: &[vir::ExprGenSnap<'vir, Curr, Next>],
     ) -> vir::ExprGenSnap<'vir, Curr, Next> {
-        self.domain_data.field_snaps_to_snap.gen()(elems).upcast_ty()
+        self.domain_data.field_snaps_to_snap.gen()(elems, &[]).upcast_ty()
     }
 
     pub fn mk_elem<'tcx, Curr, Next>(

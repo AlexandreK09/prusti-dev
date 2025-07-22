@@ -1,8 +1,11 @@
+use std::{cell::UnsafeCell, iter::once};
 use prusti_rustc_interface::middle::ty::{self};
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
-use vir::{CastType, Reify};
+use vir::{CastType, PSnap, PairRefType, Reify};
 
-use super::{rust_ty_predicates::RustTyPredicatesEnc, rust_ty_snapshots::RustTySnapshotsEnc};
+use crate::encoders::{indirect, kinds::param, lifted::ty::{EncodeGenericsAsLifted, LiftedTyEnc}, most_generic_ty};
+
+use super::{lifted::{self, casters::{CastTypePure, CastersEnc, CastersEncOutputRef}}, most_generic_ty::extract_type_params, rust_ty_predicates::RustTyPredicatesEnc, rust_ty_snapshots::RustTySnapshotsEnc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IndirectKey {
@@ -44,10 +47,11 @@ pub struct IndirectPredicatesEnc;
 type ExprInput<'vir> = vir::ExprSnap<'vir>;
 type ExprOutput<'vir> = vir::ExprGenBool<'vir, ExprInput<'vir>, vir::ExprKind<'vir>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IndirectPredicatesEncOutputRef<'vir> {
     pub covariant: Vec<ExprOutput<'vir>>,
     pub contravariant: Vec<ExprOutput<'vir>>,
+    //pub unsafe_cells: Vec<vir::ExprGen<'vir, ExprInput<'vir>, vir::ExprKind<'vir>, vir::Set<vir::PairRefType>>>,
 }
 
 impl<'vir> task_encoder::OutputRefAny for IndirectPredicatesEncOutputRef<'vir> {}
@@ -77,6 +81,7 @@ impl TaskEncoder for IndirectPredicatesEnc {
             let self_ty_enc = deps.require_local::<RustTySnapshotsEnc>(*ty)?;
             let mut covariant = Vec::<ExprOutput<'vir>>::new();
             let mut contravariant = Vec::<ExprOutput<'vir>>::new();
+            let mut unsafe_cells: Vec<vir::ExprGen<'vir, ExprInput<'vir>, vir::ExprKind<'vir>, vir::Set<vir::PairRefType>>> = Vec::new();
             match ty.kind() {
                 ty::TyKind::Ref(ref_region, inner_ty, ty::Mutability::Mut) => {
                     let ref_domain = self_ty_enc.generic_snapshot.specifics.expect_mutref();
@@ -97,7 +102,20 @@ impl TaskEncoder for IndirectPredicatesEnc {
                                     .kind
                             }),
                         ));
+                        //Todo: also add "old" where needed 
+                        /*unsafe_cells.push(vcx.mk_lazy_expr(
+                            "ref_indirect",
+                            vcx.mk_ty_set(vir::TYPE_PAIR),
+                            Box::new(move |vcx, self_expr| {
+                                let self_ref = ref_domain.deref_access.gen()(self_expr.downcast_ty());
+                                let snap = inner_ty_enc.ref_to_snap(vcx, self_ref);
+                                inner_ty_enc
+                                    .ref_to_get_unsafe_cells(vcx, self_ref, snap)
+                                    .kind
+                            }),
+                        ));*/
                     }
+
                     // TODO: is this correct??? do we always project into the inner type, regardless of region?
                     let inner_indirect =
                         deps.require_ref::<IndirectPredicatesEnc>((*inner_ty, *proj_region))?;
@@ -123,6 +141,52 @@ impl TaskEncoder for IndirectPredicatesEnc {
                         .collect::<Vec<_>>();
                     covariant.extend(inner.clone());
                     contravariant.extend(inner);
+
+                }
+                ty::TyKind::Ref(ref_region, inner_ty, ty::Mutability::Not) => {
+                    let deref_access = self_ty_enc
+                        .generic_snapshot
+                        .specifics
+                        .expect_immref()
+                        .deref_access;
+                    if IndirectKey::from_region(*ref_region)
+                        .is_some_and(|indirect| &indirect == proj_region)
+                    {
+                        let (most_generic, typarams) = extract_type_params(vcx.tcx(), *inner_ty);
+                        let caster = deps.require_ref::<CastersEnc<CastTypePure>>(most_generic)?;
+                        let caster = match caster{
+                            CastersEncOutputRef::AlreadyGeneric => None,
+                            CastersEncOutputRef::Casters { make_concrete, .. } => {
+                                let typarams_expr = typarams.into_iter()
+                                    .map(|ty| {
+                                        let lifted = deps.require_local::<LiftedTyEnc<EncodeGenericsAsLifted>>(ty)?;
+                                        Ok(lifted.expr(vcx))
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()?;
+                                Some((make_concrete, typarams_expr))
+                            }
+                        };
+                        let inner_ty_enc = deps.require_ref::<RustTyPredicatesEnc>(*inner_ty)?;
+                        unsafe_cells.push(vcx.mk_lazy_expr(
+                            "ref_indirect",
+                            vcx.mk_ty_set(vir::TYPE_PAIR),
+                            Box::new(move |vcx, self_expr| {
+                                let self_ref = deref_access.gen()(self_expr.downcast_ty());
+                                let s_param = self_ty_enc.generic_snapshot
+                                    .specifics
+                                    .expect_immref()
+                                    .value_access
+                                    .gen()(self_expr.downcast_ty());
+                                let snap = match &caster {
+                                    None => s_param.upcast_ty(),
+                                    Some((make_concrete, typarams)) => make_concrete.gen()(s_param, typarams).upcast_ty()
+                                };
+                                inner_ty_enc
+                                    .ref_to_get_unsafe_cells(vcx, self_ref, snap)
+                                    .kind
+                            }),
+                        ));
+                    }
                 }
                 ty::TyKind::Tuple(params) => {
                     let field_accessors = self_ty_enc
@@ -159,6 +223,7 @@ impl TaskEncoder for IndirectPredicatesEnc {
                 IndirectPredicatesEncOutputRef {
                     covariant,
                     contravariant,
+                    //unsafe_cells
                 },
             )?;
             Ok(((), ()))

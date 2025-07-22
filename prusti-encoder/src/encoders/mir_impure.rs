@@ -1162,7 +1162,7 @@ impl<'vir, 'enc, E: TaskEncoder> mir::visit::Visitor<'vir> for ImpureEncVisitor<
                         ).unwrap();
                         let field_snaps = fields.iter().map(|field| self.encode_operand_snap(field)).collect::<Vec<_>>();
                         let casted_args = ty_caster.apply_casts(self.vcx, field_snaps.into_iter());
-                        (sl.snap_data.field_snaps_to_snap)(&casted_args).upcast_ty()
+                        (sl.snap_data.field_snaps_to_snap)(&casted_args, &[]).upcast_ty()
                     }
                     mir::Rvalue::Discriminant(place) => {
                         let e_rvalue_ty = self.deps.require_ref::<RustTyPredicatesEnc>(rvalue_ty).unwrap();

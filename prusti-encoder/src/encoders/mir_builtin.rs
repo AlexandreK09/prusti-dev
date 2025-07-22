@@ -432,7 +432,7 @@ impl MirBuiltinEnc {
             (e_res_ty.specifics.expect_structlike().field_snaps_to_snap)(&ty_caster.apply_casts(
                 vcx,
                 [wrapped_val_snap.upcast_ty(), overflowed_snap.upcast_ty()].into_iter(),
-            ));
+            ), &[]);
         // `let wrapped_val == (val ..) in $tuple`
         let inner_let = vcx.mk_let_expr(wrapped_val_str, wrapped_val_exp, tuple);
 

@@ -1,5 +1,5 @@
 use task_encoder::{EncodeFullResult, OutputRefAny, TaskEncoder};
-use vir::{vir_format_identifier, Arity, CallableIdn, CastType, FunctionIdn};
+use vir::{vir_format_identifier, Arity, CallableIdn, CastType, DomainAxiomGen, FunctionIdn, VirCtxt};
 
 use crate::encoders::{
     most_generic_ty::{extract_type_params, MostGenericTy},
@@ -16,6 +16,8 @@ pub struct TyConstructorEncOutputRef<'vir> {
     /// Each function takes as input an instantiated type. The `i`th function in
     /// this list returns the `i`th argument to the type constructor.
     pub ty_param_accessors: &'vir [vir::FunctionIdn<'vir, vir::TyVal, vir::TyVal>],
+    
+    pub is_ty: vir::FunctionIdn<'vir, vir::TyVal, vir::Bool>,
 }
 
 impl<'vir> TyConstructorEncOutputRef<'vir> {
@@ -33,6 +35,40 @@ impl<'vir> OutputRefAny for TyConstructorEncOutputRef<'vir> {}
 #[derive(Clone)]
 pub struct TyConstructorEncOutput<'vir> {
     pub domain: vir::Domain<'vir>,
+    pub constructor_ident: FunctionIdn<'vir, vir::ManyTyVal, vir::TyVal>,
+}
+
+impl<'vir> TyConstructorEncOutput<'vir> {
+    pub fn disjoint_type<Curr, Next>(&self, other: &TyConstructorEncOutput<'vir>, vcx: &'vir VirCtxt) -> DomainAxiomGen<'vir, Curr, Next>{
+        let typarams_count_self = self.constructor_ident.arity().len();
+        let typarams_count_other = other.constructor_ident.arity().len();
+        let locals_self = (0..typarams_count_self).map(|i| vcx.mk_local(&vir::vir_format!(vcx, "t{}", i), vir::TYPE_TYVAL)).collect::<Vec<_>>();
+        let locals_other = (typarams_count_self..typarams_count_self+typarams_count_other).map(|i| vcx.mk_local(&vir::vir_format!(vcx, "t{}", i), vir::TYPE_TYVAL)).collect::<Vec<_>>();
+
+        let self_app = self.constructor_ident.gen()(vcx.alloc_slice(&locals_self.iter().map(|local| vcx.mk_local_ex_local(local)).collect::<Vec<_>>()));
+        let other_app = other.constructor_ident.gen()(vcx.alloc_slice(&locals_other.iter().map(|local| vcx.mk_local_ex_local(local)).collect::<Vec<_>>()));
+
+        let qvars = vcx.alloc_slice(&locals_self.iter().chain(locals_other.iter()).map(|local| vcx.mk_local_decl_local(local)).collect::<Vec<_>>());
+        let mut triggers_list = Vec::new();
+        if typarams_count_self > 0{
+            triggers_list.push(self_app);
+        }
+        if typarams_count_other > 0{
+            triggers_list.push(other_app);
+        }
+        let triggers = vcx.alloc_slice(&[vcx.mk_trigger(vcx.alloc_slice(&triggers_list))]);
+
+        let forall = vcx.mk_forall_expr(
+            qvars, 
+            triggers, 
+            vcx.mk_bin_op_expr(vir::BinOpKind::CmpNe, self_app, other_app).downcast_ty()
+        );
+
+        vcx.mk_domain_axiom(
+            vir::vir_format_identifier!(vcx, "ax_disjoint_{}_{}", self.domain.name, other.domain.name), 
+            forall
+        )
+    }
 }
 
 /// Encodes the lifted representation of a Rust type constructor (e.g. Option,
@@ -107,11 +143,23 @@ impl TaskEncoder for TyConstructorEnc {
                     )
                 })
                 .collect::<Vec<_>>();
+
+            let is_ty_ident = FunctionIdn::new(
+                vir::vir_format_identifier!(
+                    vcx,
+                    "is_s_{}_type",
+                    ty_constructor.get_vir_base_name(vcx)
+                ),
+                generic_ref.type_snapshot,
+                vir::TYPE_BOOL
+            );
+            functions.push(vcx.mk_domain_function(is_ty_ident, false));
             deps.emit_output_ref(
                 *task_key,
                 TyConstructorEncOutputRef {
                     ty_constructor: type_function_ident,
                     ty_param_accessors: vcx.alloc_slice(&ty_accessor_functions),
+                    is_ty: is_ty_ident
                 },
             )?;
 
@@ -129,6 +177,38 @@ impl TaskEncoder for TyConstructorEnc {
                     ),
                 ))
             }
+            axioms.push(vcx.mk_domain_axiom(
+                vir::vir_format_identifier!(vcx, "ax_is_s_{}_type", ty_constructor.get_vir_base_name(vcx)),
+                vcx.mk_forall_expr(
+                    axiom_qvars, 
+                    axiom_triggers, 
+                    is_ty_ident.gen()(func_app),
+                ))
+            );
+            let t_local = vcx.mk_local("t", generic_ref.type_snapshot);
+            let t_expr = vcx.mk_local_ex_local(t_local);
+            let axiom_inv_qvars = vcx.alloc_slice(&[vcx.mk_local_decl_local(t_local)]);
+            axioms.push(vcx.mk_domain_axiom(
+                vir::vir_format_identifier!(vcx, "ax_s_{}_type_inv", ty_constructor.get_vir_base_name(vcx)),
+                vcx.mk_forall_expr(
+                    axiom_inv_qvars,
+                    &[],
+                    vcx.mk_bin_op_expr(vir::BinOpKind::Implies, 
+                        is_ty_ident.gen()(t_expr), 
+                        vcx.mk_eq_expr(
+                            t_expr, 
+                            type_function_ident.gen()(
+                                vcx.alloc_slice(&ty_accessor_functions.iter()
+                                    .map(|accessor|
+                                        accessor.gen()(t_expr)
+                                    )
+                                    .collect::<Vec<_>>()
+                                )
+                            )
+                        )
+                    ).downcast_ty()
+                ))
+            );
             let result = TyConstructorEncOutput {
                 domain: vcx.mk_domain(
                     vir_format_identifier!(
@@ -140,6 +220,7 @@ impl TaskEncoder for TyConstructorEnc {
                     vcx.alloc_slice(&axioms),
                     vcx.alloc_slice(&functions),
                 ),
+                constructor_ident: type_function_ident
             };
             Ok((result, ()))
         })

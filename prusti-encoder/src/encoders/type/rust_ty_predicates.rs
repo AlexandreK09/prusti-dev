@@ -97,6 +97,25 @@ impl<'vir> RustTyPredicatesEncOutputRef<'vir> {
         //.map(|pred| vcx.mk_predicate_app_expr(pred.apply(vcx, self.ref_to_ty_args(vcx, self_ref), perm)))
     }
 
+    pub fn ref_to_get_unsafe_cells<'tcx>(
+        &self,
+        vcx: &'vir vir::VirCtxt<'tcx>,
+        self_ref: vir::ExprRef<'vir>,
+        snap: vir::ExprSnap<'vir>
+    ) -> vir::Expr<'vir, vir::Set<vir::PairRefType>>{
+        let (r, s, g) = self.ref_to_args_get_unsafe_cells(vcx, self_ref, snap);
+        self.generic_predicate.get_unsafe_cells.gen()(r, s, g)
+    }
+
+    pub fn ref_to_args_get_unsafe_cells<'tcx>(
+        &self,
+        vcx: &'vir vir::VirCtxt<'tcx>,
+        self_ref: vir::ExprRef<'vir>,
+        snap: vir::ExprSnap<'vir>
+    ) -> (vir::ExprRef<'vir>, vir::ExprSnap<'vir>, &'vir [vir::ExprTyVal<'vir>]) {
+        self.generic_predicate.ref_to_args_get_unsafe_cells(vcx, self.ty, self_ref, snap)
+    }
+
     /// Arguments to `ref_to_pred` and `ref_to_snap`.
     pub fn ref_to_ty_args<'tcx>(&self, vcx: &'vir vir::VirCtxt<'tcx>) -> Vec<vir::ExprTyVal<'vir>> {
         self.generic_predicate.ref_to_ty_args(vcx, self.ty)

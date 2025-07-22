@@ -1,14 +1,16 @@
 use std::alloc::Global;
 
 use pcg::{borrow_checker::r#impl::BorrowCheckerImpl, r#loop::LoopAnalysis};
-use prusti_rustc_interface::middle::mir;
+use prusti_interface::specs::specifications::SpecQuery;
+use prusti_rustc_interface::middle::{ty, mir};
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
 use vir::{MethodIdn, ViperIdent};
 
 use crate::{
     encoders::{
         lifted::func_def_ty_params::LiftedTyParamsEnc, ImpureEncVisitor, MirImpureEnc,
-        MirLocalDefEnc, MirSpecEnc, WandEnc, WandEncTask,
+        MirLocalDefEnc, MirSpecEnc, WandEnc, WandEncTask, PairRefTypeEnc, GenericEnc,
+        
     },
     trait_support::is_function_with_body,
 };
@@ -117,6 +119,37 @@ where
             pres.extend(wands.indirect_pres(vcx, &local_defs, deps));
             posts.extend(wands.indirect_posts(vcx, &local_defs, deps));
             posts.extend(wands.wand_posts(vcx, &local_defs, deps));
+
+            /*if let Some(expr) = wands.unsafe_cells_post(vcx, &local_defs, deps){
+                posts.push(expr);
+            }*/
+
+            let pair_encoder_ref = deps.require_ref::<PairRefTypeEnc>(())?;
+            let generic_encoder_ref = deps.require_ref::<GenericEnc>(())?;
+
+
+            let p_ex = vcx.mk_local_ex("p", vir::TYPE_PAIR);
+            let p_params_arg0 = pair_encoder_ref.ref_accessor.gen()(p_ex);
+            let p_params_arg1 = pair_encoder_ref.type_accessor.gen()(p_ex);
+
+            if let Some(expr) = local_defs
+                .locals
+                .iter()
+                .skip(1) //skip the return value
+                .take(local_defs.arg_count) //only take the arguments
+                .map(|local_def| local_def.unsafe_cells)
+                .reduce(|lhs, rhs| vcx.mk_set_union(lhs, rhs))
+                .map(|set|
+                    {
+                        let precondition = vcx.mk_set_in(vcx.mk_local_ex("p", vir::TYPE_PAIR), set);
+                        vir::expr!{
+                            forall p: [vir::TYPE_PAIR] :: {([generic_encoder_ref.ref_to_pred](p_params_arg0, p_params_arg1))} (precondition) ==> ([generic_encoder_ref.ref_to_pred](p_params_arg0, p_params_arg1))
+                        }
+                    }
+                )
+            {
+                pres.push(expr);
+            }
 
             // Do not encode the method body if it is external, trusted, just
             // a call stub, or a trait function without a default implementation

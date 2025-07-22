@@ -1,5 +1,14 @@
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
-use vir::{CallableIdn, DomainIdnPSnap, FunctionIdn, PredicateIdn, ViperIdent};
+use vir::{
+    CallableIdn, DomainIdnPSnap, FunctionIdn, PredicateIdn, ViperIdent
+};
+
+use prusti_rustc_interface::span::Symbol;
+use prusti_rustc_interface::middle::ty;
+
+use crate::encoders::most_generic_ty::extract_type_params;
+
+use super::PredicateEnc;
 
 pub struct GenericEnc;
 
@@ -18,6 +27,7 @@ pub struct GenericEncOutputRef<'vir> {
     pub unreachable_to_snap: FunctionIdn<'vir, (), vir::PSnap>,
     // pub domain_type_name: DomainIdent<'vir, KnownArityAny<'vir, DomainParamData<'vir>, 0>>,
     pub domain_param_name: DomainIdnPSnap<'vir>,
+    pub get_unsafe_cells: FunctionIdn<'vir, (vir::Ref, vir::PSnap, vir::TyVal), vir::Set<vir::PairRefType>>,
 }
 impl<'vir> task_encoder::OutputRefAny for GenericEncOutputRef<'vir> {}
 
@@ -64,6 +74,14 @@ impl TaskEncoder for GenericEnc {
         let param_type_function =
             FunctionIdn::new(ViperIdent::new("typ"), vir::TYPE_PSNAP, vir::TYPE_TYVAL);
 
+        let get_unsafe_cells = vir::with_vcx(|vcx| 
+            FunctionIdn::new(
+            ViperIdent::new("p_Param_get_all_UnsafeCells"), 
+            (vir::TYPE_REF, vir::TYPE_PSNAP, vir::TYPE_TYVAL),
+            vcx.mk_ty_set(vir::TYPE_PAIR)
+            )
+        );
+
         let output_ref = GenericEncOutputRef {
             type_snapshot: vir::TYPE_TYVAL,
             param_snapshot: vir::TYPE_PSNAP,
@@ -73,6 +91,7 @@ impl TaskEncoder for GenericEnc {
             ref_to_snap,
             unreachable_to_snap,
             param_type_function,
+            get_unsafe_cells,
         };
 
         #[allow(clippy::unit_arg)]
@@ -81,6 +100,11 @@ impl TaskEncoder for GenericEnc {
         let typ = param_type_function;
 
         vir::with_vcx(|vcx| {
+            let param_type = ty::Ty::new_param(vcx.tcx(), 0, Symbol::intern("T"));
+            let most_generic = extract_type_params(vcx.tcx(), param_type).0; 
+            deps.require_ref::<PredicateEnc>(most_generic)?; //this line is needed to force the generation of the predicate p_Param even if no types uses generic arguments 
+
+
             let t = vcx.mk_local_ex("t", vir::TYPE_TYVAL);
             let ref_to_snap = vcx.mk_function(
                 ref_to_snap,

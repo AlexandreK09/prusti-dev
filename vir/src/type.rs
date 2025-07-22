@@ -99,6 +99,7 @@ impl_exp_type!(Ref[TYPE_REF = Ref] => Prim | Dyn, "The Viper `Ref` type");
 impl_exp_type!(CSnap => Snap | Dyn, TypeKind::Domain(name, ..) if name.starts_with("s_") && name != "s_Param", "A concrete Prusti snapshot type");
 impl_exp_type!(PSnap[TYPE_PSNAP = Domain("s_Param", &[])] => Snap | Dyn, "The generic snapshot domain (`s_Param`)");
 impl_exp_type!(TyVal[TYPE_TYVAL = Domain("Type", &[])] => Dyn, "The type domain (`ExpType`) which gives values to types");
+impl_exp_type!(PairRefType[TYPE_PAIR = Domain("Pair_Ref_Type", &[])] => Dyn, "The domain (`Pair_Ref_Type`)");
 
 impl_exp_type!(Prim => Dyn, TypeKind::Bool | TypeKind::Int | TypeKind::Perm | TypeKind::Ref, "Represents any primitive Viper type");
 impl_exp_type!(Snap => Dyn, TypeKind::Domain(name, ..) if name.starts_with("s_"), "A Prusti snapshot type, either concrete or generic");

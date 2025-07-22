@@ -1,9 +1,5 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataMutRef, DomainEnc, DomainEncSpecifics},
-    predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataMutRef, RefToIndirectPred},
-    rust_ty_snapshots::RustTySnapshotsEnc,
-    snapshot::SnapshotEncOutput,
-    PredicateEnc,
+    domain::{DomainBuilder, DomainDataMutRef, DomainEnc, DomainEncSpecifics}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataMutRef, RefToIndirectPred}, rust_ty_snapshots::RustTySnapshotsEnc, snapshot::SnapshotEncOutput, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -61,7 +57,8 @@ pub(crate) fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     _task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
-    _deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
+    pair: &PairRefTypeOutputRef<'vir>,
+    deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     builder: &mut PredicateBuilder<'vir>,
 ) -> Result<
     (PredicateEncData<'vir>, Option<RefToIndirectPred<'vir>>),
@@ -71,13 +68,14 @@ pub(crate) fn predicate<'vir>(
     //let ty_kind = ty.kind();
     //let ty::TyKind::Ref(_, _, _) = ty_kind else { unreachable!(); };
 
-    let snap_type = snap.snapshot;
+    let snap_type = snap.snapshot.downcast_ty::<vir::CSnap>();
 
     let ref_self = builder.vcx.mk_local("self", vir::TYPE_REF);
     let ref_self_decl = builder.vcx.mk_local_decl_local(ref_self);
     //let ref_self_ex = builder.vcx.mk_local_ex_local(ref_self);
 
     let snap_data = snap.specifics.expect_mutref();
+    let generic = deps.require_ref::<crate::encoders::GenericEnc>(())?;
 
     // fields
     let ref_field = builder.field("val", snap_type);
@@ -118,6 +116,31 @@ pub(crate) fn predicate<'vir>(
         Some(vir::expr! {
             unfolding ([self_pred](ref_self)) in ([snap_data.deref_access](([ref_field](ref_self)) as CSnap))
         }),
+    );
+
+    let snap_self = builder.vcx.mk_local("snap", snap_type);
+    let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
+    let snap_self_ex = builder.vcx.mk_local_ex_local(snap_self);
+
+    let deref_ref = snap_data.deref_access.gen()(snap_self_ex);
+    let deref_snap = snap_data.value_access.gen()(snap_self_ex);
+    let deref_type = generic.param_type_function.gen()(deref_snap);
+
+    let generic_tys: &[vir::Type<'vir, vir::TyVal>] = &[];
+    let generic_decls: &[vir::LocalDecl<'vir, vir::TyVal>] = &[];
+
+    builder.get_unsafe_cells = Some(
+        builder.mk_function(
+            "get_all_UnsafeCells", 
+            (ref_self_decl.ty(), snap_self_decl.ty().upcast_ty(), generic_tys), 
+            builder.vcx.mk_ty_set(vir::TYPE_PAIR),
+            (ref_self_decl, snap_self_decl.upcast_ty(), generic_decls), 
+            &[], 
+            &[],
+            Some(
+                generic.get_unsafe_cells.gen()(deref_ref, deref_snap, deref_type)
+            )
+        )
     );
 
     Ok((

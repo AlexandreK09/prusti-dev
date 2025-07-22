@@ -1,8 +1,5 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataStruct, DomainEnc, DomainEncSpecifics},
-    predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct},
-    snapshot::SnapshotEncOutput,
-    PredicateEnc,
+    domain::{DomainBuilder, DomainDataStruct, DomainEnc, DomainEncSpecifics}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct}, snapshot::SnapshotEncOutput, PairRefTypeEnc, PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
@@ -17,7 +14,9 @@ pub(crate) fn domain<'vir>(
     let ty_kind = ty.kind();
     assert_eq!(*ty_kind, ty::TyKind::Str);
 
-    let dummy_cons_ident = builder.function("cons", &[][..], builder.self_type());
+    let args0: &[_] = &[];
+    let args1: &[_] = &[];
+    let dummy_cons_ident = builder.function("cons", (args0, args1), builder.self_type());
 
     Ok(DomainEncSpecifics::StructLike(DomainDataStruct {
         field_snaps_to_snap: dummy_cons_ident,
@@ -28,6 +27,7 @@ pub(crate) fn domain<'vir>(
 pub(crate) fn predicate<'vir>(
     task_key: <PredicateEnc as TaskEncoder>::TaskKey<'vir>,
     snap: SnapshotEncOutput<'vir>,
+    pair: &PairRefTypeOutputRef<'vir>,
     deps: &mut TaskEncoderDependencies<'vir, PredicateEnc>,
     builder: &mut PredicateBuilder<'vir>,
 ) -> Result<PredicateEncData<'vir>, EncodeFullError<'vir, PredicateEnc>> {
@@ -42,11 +42,16 @@ pub(crate) fn predicate<'vir>(
     let ref_self_decl = builder.vcx.mk_local_decl_local(ref_self);
     //let ref_self_ex = builder.vcx.mk_local_ex_local(ref_self);
 
-    let (field_accessors, self_pred, snap_expr) = super::structlike::predicate(
+    let snap_self = builder.vcx.mk_local("snap", snap_type);
+    let snap_self_decl = builder.vcx.mk_local_decl_local(snap_self);
+
+    let (field_accessors, self_pred, snap_expr, _) = super::structlike::predicate(
         "",
         &[],
+        snap_data.field_access,
         task_key,
         &snap,
+        pair,
         snap_data.field_snaps_to_snap,
         deps,
         &[],
@@ -70,6 +75,22 @@ pub(crate) fn predicate<'vir>(
                 Some(snap_expr),
             )
             .1,
+    );
+
+    let generic_tys: &[vir::Type<'vir, vir::TyVal>] = &[];
+    let generic_decls: &[vir::LocalDecl<'vir, vir::TyVal>] = &[];
+
+    builder.get_unsafe_cells = Some(
+        builder
+            .mk_function(
+                "get_all_UnsafeCells", 
+                (ref_self_decl.ty(), snap_self_decl.ty().upcast_ty(), generic_tys), 
+                builder.vcx.mk_ty_set(vir::TYPE_PAIR), 
+                (ref_self_decl, snap_self_decl.upcast_ty(), generic_decls),
+                &[], 
+                &[], 
+                Some(builder.vcx.mk_set_literal_expr(&[], vir::TYPE_PAIR))
+            )
     );
 
     Ok(PredicateEncData::StructLike(PredicateEncDataStruct {

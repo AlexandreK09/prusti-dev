@@ -1,11 +1,5 @@
 use crate::{
-    callable::*,
-    data::*,
-    debug_info::{DebugInfo, DEBUGINFO_NONE},
-    gendata::*,
-    genrefs::*,
-    refs::*,
-    typecheck_error, CastType, CompType, HasType, ViperIdent, VirCtxt,
+    callable::*, data::*, debug_info::{DebugInfo, DEBUGINFO_NONE}, gendata::*, genrefs::*, refs::*, typecheck_error, CastType, CompType, HasType, Set, ViperIdent, VirCtxt
 };
 use cfg_if::cfg_if;
 use prusti_rustc_interface::middle::ty;
@@ -433,6 +427,34 @@ impl<'tcx> VirCtxt<'tcx> {
         self.mk_bin_op_expr_inner(kind, lhs, rhs)
     }
 
+    pub fn mk_set_union<'vir, Curr, Next, T: CompType>(
+        &'vir self,
+        lhs: ExprGen<'vir, Curr, Next, Set<T>>,
+        rhs: ExprGen<'vir, Curr, Next, Set<T>>,
+    ) -> ExprGen<'vir, Curr, Next, Set<T>> {
+        self.alloc(ExprGenData::new(self.alloc(ExprKindGenData::BinOp(
+            self.alloc(BinOpGenData {
+                kind: BinOpKind::SetUnion,
+                lhs: lhs.as_dyn(),
+                rhs: rhs.as_dyn(),
+            }),
+        ))))
+    }
+
+    pub fn mk_set_in<'vir, Curr, Next, T: CompType>(
+        &'vir self,
+        lhs: ExprGen<'vir, Curr, Next, T>,
+        rhs: ExprGen<'vir, Curr, Next, Set<T>>,
+    ) -> ExprGenBool<'vir, Curr, Next> {
+        self.alloc(ExprGenData::new(self.alloc(ExprKindGenData::BinOp(
+            self.alloc(BinOpGenData {
+                kind: BinOpKind::SetIn,
+                lhs: lhs.as_dyn(),
+                rhs: rhs.as_dyn(),
+            }),
+        ))))
+    }
+
     pub fn mk_eq_expr<'vir, Curr, Next, T: CompType>(
         &'vir self,
         lhs: ExprGen<'vir, Curr, Next, T>,
@@ -538,7 +560,7 @@ impl<'tcx> VirCtxt<'tcx> {
                         self.alloc(
                             SetLiteralGenData{
                                 values: self.alloc_slice(&values_dyn),
-                                ty: ty.as_dyn(),
+                                ty: self.mk_ty_set(ty).as_dyn(),
                             }
                         )
                     )

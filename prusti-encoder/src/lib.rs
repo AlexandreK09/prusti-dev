@@ -14,6 +14,7 @@ pub mod request;
 use prusti_interface::{environment::EnvBody, specs::specifications::SpecQuery, PrustiError};
 use prusti_rustc_interface::{hir, middle::ty};
 use task_encoder::TaskEncoder;
+use vir::{with_vcx, CastType, FunctionIdn, Snap, ViperIdent};
 
 use crate::encoders::{
     lifted::{
@@ -110,6 +111,14 @@ pub fn test_entrypoint<'tcx>(
         program_domains.push(output.param_snapshot);
     }
 
+
+    header(&mut viper_code, "pair");
+    
+    for output in crate::encoders::PairRefTypeEnc::all_outputs(){
+        viper_code.push_str(&format!("{:?}\n", output.domain));
+        program_domains.push(output.domain);
+    }
+
     header(&mut viper_code, "pure generic casts");
     for cast_functions in CastersEnc::<CastTypePure>::all_outputs() {
         for cast_function in cast_functions {
@@ -133,12 +142,40 @@ pub fn test_entrypoint<'tcx>(
     }
 
     header(&mut viper_code, "type constructors");
+
+    let mut type_constructors = Vec::new();
+
     for output in TyConstructorEnc::all_outputs() {
         viper_code.push_str(&format!("{:?}\n", output.domain));
         program_domains.push(output.domain);
+
+        type_constructors.push(output);
     }
 
+    let type_disjunction = vir::with_vcx(|vcx|{
+        let mut axioms = Vec::new();
+        for i in 0..type_constructors.len(){
+            for j in i+1..type_constructors.len(){
+                axioms.push(type_constructors[i].disjoint_type(&type_constructors[j], vcx));
+            }
+        }
+        vcx.mk_domain(
+            ViperIdent::new("type_disjunction"), 
+            &[], 
+            vcx.alloc_slice(&axioms), 
+            &[]
+        )
+    });
+
+    viper_code.push_str(&format!("{:?}\n", type_disjunction));
+    program_domains.push(type_disjunction);
+
     header(&mut viper_code, "types");
+
+    let mut p_param_body_elements = Vec::new();
+    let mut p_param_body = None;
+    let mut p_param_get_unsafe_cells_unknown = None;
+
     for output in crate::encoders::PredicateEnc::all_outputs() {
         for field in output.fields {
             viper_code.push_str(&format!("{:?}", field));
@@ -152,12 +189,43 @@ pub fn test_entrypoint<'tcx>(
         program_functions.push(output.unreachable_to_snap);
         viper_code.push_str(&format!("{:?}\n", output.function_snap));
         program_functions.push(output.function_snap);
+        viper_code.push_str(&format!("{:?}\n", output.get_unsafe_cells));
+        program_functions.push(output.get_unsafe_cells);
         for pred in output.predicates {
             viper_code.push_str(&format!("{:?}\n", pred));
             program_predicates.push(pred);
         }
         viper_code.push_str(&format!("{:?}\n", output.method_assign));
         program_methods.push(output.method_assign);
+        if let Some(body) = output.param_get_unsafe_cell_body{
+            if let Some(cond) = output.param_get_unsafe_cell_condition{
+                p_param_body_elements.push((body, cond));
+            }else{
+                p_param_body = Some(body);
+                p_param_get_unsafe_cells_unknown = Some(output.get_unsafe_cells);
+            }
+        }
+    }
+
+    if let Some(body) = vir::with_vcx(|vcx| p_param_body.map(|init| p_param_body_elements.iter().fold(init, |acc, current| vcx.mk_ternary_expr(current.1, current.0, acc)))) {
+        let unknown  = p_param_get_unsafe_cells_unknown.unwrap();
+
+        let param_get_unsafe_cells = with_vcx(|vcx|{
+            vcx.mk_function(
+                FunctionIdn::<(vir::Ref, vir::Snap, vir::ManyTyVal), _>::new(
+                    ViperIdent::new("p_Param_get_all_UnsafeCells"), 
+                    (vir::TYPE_REF, vir::TYPE_PSNAP.upcast_ty::<Snap>(), vcx.alloc_slice(&[vir::TYPE_TYVAL])), 
+                    vcx.mk_ty_set(vir::TYPE_PAIR)
+                ), 
+                (vcx.mk_local_decl("self", vir::TYPE_REF), vcx.mk_local_decl("snap", vir::TYPE_PSNAP.upcast_ty()), vcx.alloc_slice(&[vcx.mk_local_decl("t", vir::TYPE_TYVAL)])),
+                unknown.pres,
+                unknown.posts,
+                None,
+                Some(body)
+            )
+        });
+        program_functions.push(param_get_unsafe_cells);
+        viper_code.push_str(&format!("{:?}\n", param_get_unsafe_cells));
     }
 
     if std::env::var("LOCAL_TESTING").is_ok() {

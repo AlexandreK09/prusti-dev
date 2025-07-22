@@ -4,11 +4,10 @@ use prusti_rustc_interface::{
 };
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
 use vir::{
-    CallableIdn, CastType, FunctionIdn, HasType, MethodIdn, PredicateIdn,
-    VirCtxt,
+    CallableIdn, CastType, Expr, ExprBool, ExprTyVal, FunctionIdn, HasType, MethodIdn, PredicateIdn, TypeData, ViperIdent, VirCtxt
 };
 
-use crate::encoders::{generic::GenericEncOutputRef, GenericEnc};
+use crate::encoders::{generic::GenericEncOutputRef, {lifted::{casters::{CastTypePure, CastersEnc, CastersEncOutputRef}, ty_constructor::TyConstructorEnc}, pair_ref_type::PairRefTypeEnc, GenericEnc}};
 
 use super::{
     domain::{DomainDataImmRef, DomainDataMutRef, DomainDataPrim, DomainDataStruct},
@@ -92,6 +91,7 @@ pub struct PredicateEncOutputRef<'vir> {
     pub(super) method_assign: MethodIdn<'vir, (vir::Ref, vir::ManyTyVal, vir::Snap)>,
     /// Construct snapshot from an unreachable.
     pub unreachable_to_snap: FunctionIdn<'vir, (), vir::Snap>,
+    pub get_unsafe_cells: FunctionIdn<'vir, (vir::Ref, vir::Snap, vir::ManyTyVal), vir::Set<vir::PairRefType>>,
     /// Always `TypeData::Domain`.
     pub snapshot: vir::TypeSnap<'vir>,
     //pub method_refold: &'vir str,
@@ -115,6 +115,17 @@ impl<'vir> PredicateEncOutputRef<'vir> {
         instantiated_ty: LiftedTy<'vir, LiftedGeneric<'vir>>,
     ) -> Vec<vir::ExprTyVal<'vir>> {
         instantiated_ty.arg_exprs(vcx)
+    }
+
+    /// Constructs arguments for [`PredicateEncOutputRef::get_unsafe_cells`] . 
+    pub fn ref_to_args_get_unsafe_cells<'tcx>(
+        &self,
+        vcx: &'vir vir::VirCtxt<'tcx>,
+        instantiated_ty: LiftedTy<'vir, LiftedGeneric<'vir>>,
+        self_ref: vir::ExprRef<'vir>,
+        snap: vir::ExprSnap<'vir>,
+    ) -> (vir::ExprRef<'vir>, vir::ExprSnap<'vir>, &'vir[vir::ExprTyVal<'vir>]) {
+        (self_ref, snap, vcx.alloc_slice(&instantiated_ty.arg_exprs(vcx)))
     }
 
     #[track_caller]
@@ -211,7 +222,13 @@ pub(crate) struct PredicateBuilder<'vir> {
     // TODO: function idents!
     pub(crate) unreachable_to_snap:
         Option<(vir::FunctionIdn<'vir, (), vir::CSnap>, vir::Function<'vir>)>,
+    pub(crate) get_unsafe_cells: Option<(
+        FunctionIdn<'vir, (vir::Ref, vir::Snap, vir::ManyTyVal), vir::Set<vir::PairRefType>>,
+        vir::Function<'vir>,
+    )>,
     pub(crate) function_snap: Option<vir::Function<'vir>>,
+    pub(crate) param_get_unsafe_cell_body: Option<Expr<'vir, vir::Set<vir::PairRefType>>>,
+    pub(crate) param_get_unsafe_cell_condition: Option<ExprBool<'vir>>,
 }
 
 impl<'vir> PredicateBuilder<'vir> {
@@ -224,7 +241,10 @@ impl<'vir> PredicateBuilder<'vir> {
             methods: Vec::new(),
             predicates: Vec::new(),
             unreachable_to_snap: None,
+            get_unsafe_cells: None,
             function_snap: None,
+            param_get_unsafe_cell_body: None,
+            param_get_unsafe_cell_condition: None,
         }
     }
 
@@ -361,8 +381,11 @@ impl<'vir> PredicateBuilder<'vir> {
             predicates: self.predicates,
             unreachable_to_snap: self.unreachable_to_snap.unwrap().1,
             function_snap: self.function_snap.unwrap(),
+            get_unsafe_cells: self.get_unsafe_cells.unwrap().1,
             ref_to_field_refs: self.functions,
             method_assign: self.methods[0],
+            param_get_unsafe_cell_body: self.param_get_unsafe_cell_body,
+            param_get_unsafe_cell_condition: self.param_get_unsafe_cell_condition,
         }
     }
 }
@@ -374,8 +397,11 @@ pub struct PredicateEncOutput<'vir> {
     // TODO: these should be generated on demand, put into tiny encoders ?
     pub unreachable_to_snap: vir::Function<'vir>,
     pub function_snap: vir::Function<'vir>,
+    pub get_unsafe_cells: vir::Function<'vir>,
     pub ref_to_field_refs: Vec<vir::Function<'vir>>,
     pub method_assign: vir::Method<'vir>,
+    pub param_get_unsafe_cell_body: Option<Expr<'vir, vir::Set<vir::PairRefType>>> ,
+    pub param_get_unsafe_cell_condition: Option<ExprBool<'vir>>
 }
 
 impl TaskEncoder for PredicateEnc {
@@ -398,6 +424,10 @@ impl TaskEncoder for PredicateEnc {
         deps: &mut TaskEncoderDependencies<'vir, Self>,
     ) -> EncodeFullResult<'vir, Self> {
         let snap = deps.require_local::<SnapshotEnc>(*task_key)?;
+        let pair_output_ref = deps.require_ref::<PairRefTypeEnc>(())?;
+
+        let casts = deps.require_ref::<CastersEnc::<CastTypePure>>(*task_key)?;
+        let type_constructor = deps.require_ref::<TyConstructorEnc>(*task_key)?;
 
         if let TyKind::Param(..) = task_key.kind() {
             let generic_output_ref = deps.require_ref::<GenericEnc>(())?;
@@ -425,6 +455,40 @@ impl TaskEncoder for PredicateEnc {
                 )
             });
             let (ref_to_pred, ref_to_snap) = (ref_to_pred.cast_args(rtp), ref_to_snap.cast_ty(rts));
+            let get_unsafe_cells = vir::with_vcx(|vcx| {
+                let name= "p_Param_get_all_UnsafeCells";
+                let name_unknown = "p_Param_get_all_UnsafeCells_unknown";
+                let self_local = vcx.mk_local("self", vir::TYPE_REF);
+                let self_ex = vcx.mk_local_ex_local(self_local);
+                let self_local_decl = vcx.mk_local_decl_local(self_local);
+                let snap_local = vcx.mk_local("snap", generic_output_ref.param_snapshot);
+                let snap_ex = vcx.mk_local_ex_local(snap_local);
+                let snap_local_decl = vcx.mk_local_decl_local(snap_local);
+                let t_local = vcx.mk_local("t", generic_output_ref.type_snapshot);
+                let t_ex = vcx.mk_local_ex_local(t_local);
+                let t_local_decl = vcx.mk_local_decl_local(t_local);
+                let ret = vcx.mk_ty_set(vir::TYPE_PAIR);
+                let ident = vir::FunctionIdn::new(
+                    vir::ViperIdent::new(name),
+                    (vir::TYPE_REF, generic_output_ref.param_snapshot.upcast_ty(), vcx.alloc_slice(&[generic_output_ref.type_snapshot])),
+                    ret
+                );
+                let ident_unknown: FunctionIdn<'_, (vir::Ref, vir::Snap, vir::ManyTyVal), vir::Set<vir::PairRefType>> = vir::FunctionIdn::new(
+                    vir::ViperIdent::new(name_unknown),
+                    (vir::TYPE_REF, generic_output_ref.param_snapshot.upcast_ty::<vir::Snap>(), vcx.alloc_slice(&[generic_output_ref.type_snapshot])),
+                    ret
+                );
+                let unknown_function = vcx.mk_function(
+                    ident_unknown, 
+                    (self_local_decl, snap_local_decl.upcast_ty(), vcx.alloc_slice(&[t_local_decl])),
+                    vcx.alloc_slice(&[vcx.mk_eq_expr(generic_output_ref.param_type_function.gen()(snap_ex), t_ex)]),
+                    &[],
+                    None, 
+                    None
+                );
+                let unknown_function_app = ident_unknown.gen()(self_ex, snap_ex.upcast_ty(), vcx.alloc_slice(&[t_ex]));
+                (ident, unknown_function, unknown_function_app)
+            });
             deps.emit_output_ref(
                 *task_key,
                 PredicateEncOutputRef {
@@ -432,6 +496,7 @@ impl TaskEncoder for PredicateEnc {
                     ref_to_snap,
                     unreachable_to_snap: unreachable_to_snap.cast_ty(unreachable_to_snap.arity()),
                     method_assign,
+                    get_unsafe_cells: get_unsafe_cells.0,
                     snapshot: snap.snapshot,
                     specifics: PredicateEncData::Param,
                     generics: &[],
@@ -454,8 +519,11 @@ impl TaskEncoder for PredicateEnc {
                         predicates: vec![dep.ref_to_pred],
                         unreachable_to_snap: dep.unreachable_to_snap,
                         function_snap: dep.ref_to_snap,
+                        get_unsafe_cells: get_unsafe_cells.1,
                         ref_to_field_refs: vec![],
                         method_assign,
+                        param_get_unsafe_cell_body: Some(get_unsafe_cells.2),
+                        param_get_unsafe_cell_condition: None
                     },
                     (),
                 ))
@@ -471,6 +539,9 @@ impl TaskEncoder for PredicateEnc {
             let snap_type = snap.snapshot.downcast_ty::<vir::CSnap>();
             let ref_self = vcx.mk_local("self", vir::TYPE_REF);
             let ref_self_decl = vcx.mk_local_decl_local(ref_self);
+
+            let snap_self = vcx.mk_local("snap", snap_type);
+            let snap_self_decl = vcx.mk_local_decl_local(snap_self);
 
             let generic_decls = snap.generics.iter().map(|g| g.decl()).collect::<Vec<_>>();
             let generic_exprs = snap
@@ -519,6 +590,7 @@ impl TaskEncoder for PredicateEnc {
                 ],
             );
 
+
             if crate::encoders::is_type_trusted(task_key.ty()) {
                 let args = (ref_self_decl, generic_decls.as_slice());
                 builder.predicate::<(vir::Ref, vir::ManyTyVal)>(
@@ -541,6 +613,21 @@ impl TaskEncoder for PredicateEnc {
                         .1,
                 );
                 let unreachable_to_snap = builder.unreachable_to_snap.unwrap().0;
+                builder.get_unsafe_cells = Some(
+                    {
+                        let name = "get_all_UnsafeCells";
+                        let return_type = builder.vcx.mk_ty_set(vir::TYPE_PAIR);
+                        let ident = vir::FunctionIdn::new(
+                            ViperIdent::new(name),
+                            (vir::TYPE_REF, snap_type.upcast_ty(), vcx.alloc_slice(&[])),
+                            return_type
+                        );
+                        (
+                            ident,
+                            builder.vcx.mk_function(ident, (ref_self_decl, snap_self_decl.upcast_ty(), generic_decls.as_slice()), &[], &[], None, None)
+                        )
+                    }
+                );
                 deps.emit_output_ref(
                     *task_key,
                     PredicateEncOutputRef {
@@ -549,6 +636,7 @@ impl TaskEncoder for PredicateEnc {
                         unreachable_to_snap: unreachable_to_snap
                             .cast_ty(unreachable_to_snap.arity()),
                         method_assign,
+                        get_unsafe_cells: builder.get_unsafe_cells.unwrap().0,
                         snapshot: snap_type.upcast_ty(),
                         specifics: PredicateEncData::Trusted,
                         generics: vcx.alloc_slice(&generic_decls),
@@ -564,11 +652,12 @@ impl TaskEncoder for PredicateEnc {
                 | TyKind::Int(_)
                 | TyKind::Uint(_)
                 | TyKind::Float(_) => {
-                    super::kinds::primitive::predicate(*task_key, snap.clone(), deps, &mut builder)?
+                    super::kinds::primitive::predicate(*task_key, snap.clone(), &pair_output_ref, deps, &mut builder)?
                 }
                 TyKind::Adt(..) => super::kinds::adt::predicate(
                     *task_key,
                     snap.clone(),
+                    &pair_output_ref,
                     deps,
                     &generic_decls,
                     &generic_exprs,
@@ -577,6 +666,7 @@ impl TaskEncoder for PredicateEnc {
                 TyKind::Ref(_, _, ty::Mutability::Not) => super::kinds::immref::predicate(
                     *task_key,
                     snap.clone(),
+                    &pair_output_ref,
                     deps,
                     &generic_decls,
                     &generic_exprs,
@@ -585,6 +675,7 @@ impl TaskEncoder for PredicateEnc {
                 TyKind::Ref(_, _, ty::Mutability::Mut) => super::kinds::mutref::predicate(
                     *task_key,
                     snap.clone(),
+                    &pair_output_ref,
                     deps,
                     /*&generic_decls, &generic_exprs, */ &mut builder,
                 )?,
@@ -592,6 +683,7 @@ impl TaskEncoder for PredicateEnc {
                     super::kinds::never::predicate(
                         *task_key,
                         snap.clone(),
+                        &pair_output_ref,
                         deps,
                         /*&generic_decls, &generic_exprs, */ &mut builder,
                     )?,
@@ -601,6 +693,7 @@ impl TaskEncoder for PredicateEnc {
                     super::kinds::closure::predicate(
                         *task_key,
                         snap.clone(),
+                        &pair_output_ref,
                         deps,
                         &generic_decls,
                         &generic_exprs,
@@ -612,6 +705,7 @@ impl TaskEncoder for PredicateEnc {
                     super::kinds::tuple::predicate(
                         *task_key,
                         snap.clone(),
+                        &pair_output_ref,
                         deps,
                         &generic_decls,
                         &generic_exprs,
@@ -620,12 +714,45 @@ impl TaskEncoder for PredicateEnc {
                     None,
                 ),
                 TyKind::Str => (
-                    super::kinds::str::predicate(*task_key, snap.clone(), deps, &mut builder)?,
+                    super::kinds::str::predicate(*task_key, snap.clone(), &pair_output_ref, deps, &mut builder)?,
                     None,
                 ),
                 TyKind::Param(_) => unreachable!(),
                 _ => return Ok(None),
             };
+
+            //TODO: remove this blocks once each type have the function get_allUnsafeCells
+            if builder.get_unsafe_cells.is_none(){
+                builder.get_unsafe_cells = Some(
+                    builder.mk_function(
+                        "get_all_UnsafeCells", 
+                        (ref_self_decl.ty(), snap_self_decl.ty().upcast_ty(), generic_decl_tys), 
+                        builder.vcx.mk_ty_set(vir::TYPE_PAIR), 
+                        (ref_self_decl, snap_self_decl.upcast_ty(), generic_decls.as_slice()),
+                        &[],
+                        &[], 
+                        None
+                    )
+                );
+            }
+
+            if let CastersEncOutputRef::Casters { make_concrete, .. } = casts{
+                let snap_ex = vcx.mk_local_ex("snap", vir::TYPE_PSNAP);
+                let t_ex = vcx.mk_local_ex("t", vir::TYPE_TYVAL);
+
+                let generic_args = type_constructor.ty_param_accessors.iter().map(|accessor|
+                    accessor.gen()(t_ex)
+                ).collect::<Vec<_>>();
+
+                let make_concrete_app = make_concrete.gen()(snap_ex, &generic_args);
+                
+                let self_ex = vcx.mk_local_ex("self", vir::TYPE_REF);
+
+                let body = builder.get_unsafe_cells.unwrap().0.gen()(self_ex, make_concrete_app.upcast_ty(), &generic_args);
+                let condition = type_constructor.is_ty.gen()(t_ex);
+                builder.param_get_unsafe_cell_body = Some(body);
+                builder.param_get_unsafe_cell_condition = Some(condition);
+            }
 
             let unreachable_to_snap = builder.unreachable_to_snap.unwrap().0;
             deps.emit_output_ref(
@@ -635,6 +762,7 @@ impl TaskEncoder for PredicateEnc {
                     ref_to_snap: snap_func_ident.cast_ty(snap_func_ident.arity()),
                     unreachable_to_snap: unreachable_to_snap.cast_ty(unreachable_to_snap.arity()),
                     method_assign,
+                    get_unsafe_cells: builder.get_unsafe_cells.unwrap().0,
                     snapshot: snap_type.upcast_ty(),
                     specifics,
                     generics: vcx.alloc_slice(&generic_decls),

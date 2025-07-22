@@ -29,6 +29,7 @@ pub struct LocalDef<'vir> {
     pub local_ex: vir::ExprRef<'vir>,
     pub impure_snap: vir::ExprSnap<'vir>,
     pub impure_pred: vir::ExprBool<'vir>,
+    pub unsafe_cells: vir::Expr<'vir, vir::Set<vir::PairRefType>>,
     pub ty: &'vir PredicateEncOutputRef<'vir>,
 }
 
@@ -66,12 +67,14 @@ impl TaskEncoder for MirLocalDefEnc {
             let local_ex = vcx.mk_local_ex_local(local);
             let impure_snap = ty.ref_to_snap(vcx, local_ex);
             let impure_pred = ty.ref_to_pred(vcx, local_ex, None);
+            let unsafe_cells = ty.ref_to_get_unsafe_cells(vcx, local_ex, impure_snap);
             LocalDef {
                 local,
                 local_snap,
                 local_ex,
                 impure_snap,
                 impure_pred,
+                unsafe_cells,
                 ty: vcx.alloc(ty.generic_predicate),
             }
         }

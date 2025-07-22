@@ -773,7 +773,7 @@ impl<'vir: 'enc, 'enc> Enc<'vir, 'enc> {
                         .map(|field| self.encode_operand(curr_ver, field))
                         .collect::<Vec<_>>();
                     let casted_args = ty_caster.apply_casts(self.vcx, cons_args.into_iter());
-                    sl.snap_data.field_snaps_to_snap.gen()(&casted_args).upcast_ty()
+                    sl.snap_data.field_snaps_to_snap.gen()(&casted_args, &[]).upcast_ty()
                 }
                 _ => todo!("Unsupported Rvalue::AggregateKind: {kind:?}"),
             },

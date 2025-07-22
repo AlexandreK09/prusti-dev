@@ -56,7 +56,7 @@ pub struct DomainDataMutRef<'vir> {
 pub struct DomainDataStruct<'vir> {
     /// Construct domain from snapshots of fields or for primitive types
     /// from the single Viper primitive value.
-    pub field_snaps_to_snap: FunctionIdn<'vir, vir::ManySnap, vir::CSnap>,
+    pub field_snaps_to_snap: FunctionIdn<'vir, (vir::ManySnap, vir::ManyTyVal), vir::CSnap>,
     /// Functions to access the fields.
     pub field_access: &'vir [FieldFunctions<'vir>],
 }
@@ -182,7 +182,7 @@ impl TaskEncoder for DomainEnc {
                 | TyKind::Int(_)
                 | TyKind::Uint(_)
                 | TyKind::Float(_) => {
-                    super::kinds::primitive::domain(*task_key, deps, &mut builder)?
+                    super::kinds::primitive::domain(*task_key, typeof_ident, deps, &mut builder)?
                 }
                 TyKind::Closure(..) => {
                     super::kinds::closure::domain(*task_key, &output_ref, deps, &mut builder)?
@@ -195,7 +195,7 @@ impl TaskEncoder for DomainEnc {
                 }
                 TyKind::Never => super::kinds::never::domain(*task_key, deps, &mut builder)?,
                 TyKind::Ref(_, _, ty::Mutability::Not) => {
-                    super::kinds::immref::domain(*task_key, &output_ref, deps, &mut builder)?
+                    super::kinds::immref::domain(*task_key, &output_ref, typeof_ident, deps, &mut builder)?
                 }
                 TyKind::Ref(_, _, ty::Mutability::Mut) => {
                     super::kinds::mutref::domain(*task_key, deps, &mut builder)?
