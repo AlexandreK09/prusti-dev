@@ -1,5 +1,13 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainEnc, DomainEncOutputRef, FieldFunctions, FieldTy}, lifted::{ty::{EncodeGenericsAsParamTy, LiftedTy, LiftedTyEnc}, ty_constructor::TyConstructorEnc}, pair_ref_type::PairRefTypeOutputRef, predicate::PredicateBuilder, rust_ty_predicates::RustTyPredicatesEncOutputRef, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
+    domain::{DomainBuilder, DomainEnc, DomainEncOutputRef, FieldFunctions, FieldTy}, 
+    lifted::{ty::{EncodeGenericsAsParamTy, LiftedTy, LiftedTyEnc}, 
+    ty_constructor::TyConstructorEnc}, 
+    pair_ref_type::PairRefTypeOutputRef, 
+    predicate::PredicateBuilder, 
+    rust_ty_predicates::RustTyPredicatesEncOutputRef, 
+    snapshot::SnapshotEncOutput, 
+    GenericEnc, 
+    PredicateEnc
 };
 use crate::encoders::most_generic_ty::extract_type_params;
 use prusti_rustc_interface::middle::ty::{ParamTy, TyKind};
@@ -32,7 +40,11 @@ pub fn domain<'vir>(
         &format!("{prefix}cons"),
         builder
             .vcx
-            .alloc_slice(&fields.iter().map(|fty| fty.ty).chain(generics.iter().map(|_| generic_enc.type_snapshot)).collect::<Vec<_>>()),
+            .alloc_slice(&fields
+                .iter()
+                .map(|fty| fty.ty)
+                .chain(generics.iter().map(|_| generic_enc.type_snapshot))
+                .collect::<Vec<_>>()),
         builder.self_type(),
     );
 

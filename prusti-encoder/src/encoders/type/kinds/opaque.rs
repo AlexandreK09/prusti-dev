@@ -1,4 +1,8 @@
-use crate::encoders::{domain::{DomainBuilder, DomainEnc, DomainEncSpecifics}, predicate::PredicateBuilder, snapshot::SnapshotEncOutput};
+use crate::encoders::{
+    domain::{DomainBuilder, DomainEnc, DomainEncSpecifics}, 
+    predicate::PredicateBuilder, 
+    snapshot::SnapshotEncOutput
+};
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
 use vir::{PredicateIdent};
 

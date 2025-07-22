@@ -10,7 +10,6 @@ use crate::encoders::{
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
 use vir::{Expr, ToKnownArity, TypeData, UnsupportedType};
-
 use super::structlike;
 
 pub(crate) fn domain<'vir>(

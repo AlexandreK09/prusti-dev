@@ -107,7 +107,7 @@ impl TaskEncoder for TyConstructorEnc {
                 UnknownArity::new(type_function_args),
                 generic_ref.type_snapshot,
             );
-            functions.push(vcx.mk_domain_function(type_function_ident, args.len() == 0));
+            functions.push(vcx.mk_domain_function(type_function_ident, false));
             let ty_arg_decls: Vec<vir::LocalDecl<'vir>> = args
                 .iter()
                 .enumerate()

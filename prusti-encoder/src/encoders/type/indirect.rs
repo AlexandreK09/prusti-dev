@@ -1,11 +1,9 @@
 use std::{cell::UnsafeCell, iter::once};
-
 use prusti_rustc_interface::middle::ty::{self};
 use task_encoder::{EncodeFullResult, TaskEncoder, TaskEncoderDependencies};
 use vir::Reify;
 
 use crate::encoders::{indirect, kinds::param, lifted::ty::{EncodeGenericsAsLifted, LiftedTyEnc}, most_generic_ty};
-
 use super::{lifted::{self, casters::{CastTypePure, CastersEnc, CastersEncOutputRef}}, most_generic_ty::extract_type_params, rust_ty_predicates::RustTyPredicatesEnc, rust_ty_snapshots::RustTySnapshotsEnc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -118,7 +116,6 @@ impl TaskEncoder for IndirectPredicatesEnc {
                             }),
                         ));
                     }
-
                     // TODO: is this correct??? do we always project into the inner type, regardless of region?
                     let inner_indirect =
                         deps.require_ref::<IndirectPredicatesEnc>((*inner_ty, *proj_region))?;

@@ -1,5 +1,10 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataStruct, DomainEnc, DomainEncSpecifics}, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct}, snapshot::SnapshotEncOutput, PairRefTypeEnc, PredicateEnc
+    domain::{DomainBuilder, DomainDataStruct, DomainEnc, DomainEncSpecifics}, 
+    pair_ref_type::PairRefTypeOutputRef, 
+    predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataStruct}, 
+    snapshot::SnapshotEncOutput, 
+    PairRefTypeEnc, 
+    PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};

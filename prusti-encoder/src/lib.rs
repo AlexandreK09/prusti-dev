@@ -144,7 +144,6 @@ pub fn test_entrypoint<'tcx>(
     for output in TyConstructorEnc::all_outputs() {
         viper_code.push_str(&format!("{:?}\n", output.domain));
         program_domains.push(output.domain);
-
         type_constructors.push(output);
     }
 

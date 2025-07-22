@@ -2,7 +2,12 @@ use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
 
 use crate::encoders::{
-    domain::{DomainBuilder, DomainEnc, DomainEncSpecifics}, pair_ref_type::{self, PairRefTypeOutputRef}, predicate::{PredicateBuilder, PredicateEncData}, snapshot::SnapshotEncOutput, PairRefTypeEnc, PredicateEnc
+    domain::{DomainBuilder, DomainEnc, DomainEncSpecifics}, 
+    pair_ref_type::{self, PairRefTypeOutputRef}, 
+    predicate::{PredicateBuilder, PredicateEncData}, 
+    snapshot::SnapshotEncOutput, 
+    PairRefTypeEnc, 
+    PredicateEnc
 };
 
 pub(crate) fn domain<'vir>(

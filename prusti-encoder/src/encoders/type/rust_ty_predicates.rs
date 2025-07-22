@@ -123,7 +123,7 @@ impl<'vir> RustTyPredicatesEncOutputRef<'vir> {
     pub fn ref_to_args<'tcx>(
         &self,
         vcx: &'vir vir::VirCtxt<'tcx>,
-        self_ref: vir::Expr<'vir>
+        self_ref: vir::Expr<'vir>,
     ) -> &'vir [vir::Expr<'vir>] {
         self.generic_predicate.ref_to_args(vcx, self.ty, self_ref)
     }

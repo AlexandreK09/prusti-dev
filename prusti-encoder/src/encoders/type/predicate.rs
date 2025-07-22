@@ -612,7 +612,6 @@ impl TaskEncoder for PredicateEnc {
                 ],
             );
 
-
             if crate::encoders::spec::is_type_trusted(task_key.ty()) {
                 let args = &[ref_self_decl]
                     .into_iter()

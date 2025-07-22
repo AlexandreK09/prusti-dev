@@ -1,6 +1,5 @@
 use pcg::{borrow_pcg::borrow_checker::r#impl::BorrowCheckerImpl, r#loop::LoopAnalysis};
 use prusti_rustc_interface::middle::{ty, mir};
-
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
 use vir::{MethodIdent, UnknownArity, ViperIdent};
 

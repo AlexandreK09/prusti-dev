@@ -117,8 +117,6 @@ impl TaskEncoder for GenericEnc {
             &TYP_DOMAIN,
         );
 
-        
-
         vir::with_vcx(|vcx| {
             let param_type = ty::Ty::new_param(vcx.tcx(), 0, Symbol::intern("T"));
             let most_generic = extract_type_params(vcx.tcx(), param_type).0; 

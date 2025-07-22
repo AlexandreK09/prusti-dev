@@ -1,5 +1,12 @@
 use crate::encoders::{
-    domain::{DomainBuilder, DomainDataImmRef, DomainEnc, DomainEncSpecifics}, lifted::ty_constructor::TyConstructorEnc, pair_ref_type::PairRefTypeOutputRef, predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataImmRef}, rust_ty_snapshots::RustTySnapshotsEnc, snapshot::SnapshotEncOutput, GenericEnc, PredicateEnc
+    domain::{DomainBuilder, DomainDataImmRef, DomainEnc, DomainEncSpecifics}, 
+    lifted::ty_constructor::TyConstructorEnc, 
+    pair_ref_type::PairRefTypeOutputRef, 
+    predicate::{PredicateBuilder, PredicateEncData, PredicateEncDataImmRef}, 
+    rust_ty_snapshots::RustTySnapshotsEnc, 
+    snapshot::SnapshotEncOutput, 
+    GenericEnc, 
+    PredicateEnc
 };
 use prusti_rustc_interface::middle::ty;
 use task_encoder::{EncodeFullError, TaskEncoder, TaskEncoderDependencies};
