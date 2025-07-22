@@ -30,9 +30,10 @@ impl<'vir, Curr, Next> BinOpGenData<'vir, Curr, Next> {
             | BinOpKind::CmpGt
             | BinOpKind::CmpLt
             | BinOpKind::CmpGe
-            | BinOpKind::CmpLe => crate::TYPE_BOOL.upcast_ty(),
+            | BinOpKind::CmpLe
+            | BinOpKind::SetIn => crate::TYPE_BOOL.upcast_ty(),
             BinOpKind::And | BinOpKind::Or | BinOpKind::Implies => crate::TYPE_BOOL.upcast_ty(),
-            BinOpKind::Add | BinOpKind::Sub | BinOpKind::Mul | BinOpKind::Div | BinOpKind::Mod => {
+            BinOpKind::Add | BinOpKind::Sub | BinOpKind::Mul | BinOpKind::Div | BinOpKind::Mod | BinOpKind::SetUnion => {
                 self.lhs.ty().downcast_ty()
             }
             BinOpKind::DivRational => crate::TYPE_PERM.upcast_ty(),
@@ -119,6 +120,13 @@ pub struct WandGenData<'vir, Curr, Next> {
     pub rhs: ExprGenBool<'vir, Curr, Next>,
 }
 
+#[derive(VirHash, VirReify, VirSerde)]
+pub struct SetLiteralGenData<'vir, Curr, Next> {
+    pub values: &'vir [ExprGen<'vir, Curr, Next, crate::Dyn>],
+    #[vir(reify_pass, is_ref)]
+    pub ty: Type<'vir, crate::Dyn>,
+}
+
 /*
 // TODO: something like this would be a cleaner solution for ExprGenData's
 //   generic; when tested, this runs into an infinite loop in rustc ...?
@@ -178,6 +186,7 @@ pub enum ExprKindGenData<'vir, Curr: 'vir, Next: 'vir> {
     // container ops?
     // map ops?
     // sequence, map, set, multiset literals
+    SetLiteral(SetLiteralGen<'vir, Curr, Next>),
     Ternary(TernaryGen<'vir, Curr, Next>),
     Exists(ExistsGen<'vir, Curr, Next>),
     Forall(ForallGen<'vir, Curr, Next>),
@@ -216,6 +225,7 @@ impl<'vir, Curr, Next> ExprKindGenData<'vir, Curr, Next> {
             ExprKindGenData::Wand(..) => crate::TYPE_BOOL.as_dyn(),
             ExprKindGenData::Lazy(l) => l.ty,
             ExprKindGenData::Todo(msg) => panic!("{msg}"),
+            ExprKindGenData::SetLiteral(l) => l.ty
         }
     }
 }

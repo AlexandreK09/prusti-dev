@@ -160,6 +160,11 @@ cfg_if! {
                 ExprKindGenData::UnOp(UnOpGenData { expr, .. }) => {
                     check_expr_bindings(m, expr.as_dyn());
                 },
+                ExprKindGenData::SetLiteral(SetLiteralGenData{values, .. }) => {
+                    for value in values.iter() {
+                        check_expr_bindings(m, value.as_dyn());
+                    }
+                },
                 ExprKindGenData::Ternary(TernaryGenData { cond, then, else_}) => {
                     check_expr_bindings(m, cond.as_dyn());
                     check_expr_bindings(m, *then);
@@ -510,6 +515,36 @@ impl<'tcx> VirCtxt<'tcx> {
             self.alloc(ExprKindGenData::Todo(msg)),
             ty,
         ))
+    }
+
+    pub fn mk_ty_set<'vir, T: CompType>(&'vir self, elem_ty: Type<'vir, T>) -> Type<'vir, crate::Set<T>> {
+        self.alloc(unsafe{
+            let inner = self.alloc(elem_ty.as_dyn());
+            TypeData::new_unchecked(TypeKind::Set(inner)) 
+        })
+    }
+
+    pub fn mk_set_literal_expr<'vir, Curr, Next, T: CompType>(&'vir self, values: &'vir [&'vir ExprGenData<'vir, Curr, Next, T>], ty: Type<'vir, T>) -> ExprGen<'vir, Curr, Next, crate::Set<T>> {
+        let values_dyn = values
+            .iter()
+            .map(|expr|
+                expr.as_dyn()
+            )
+            .collect::<Vec<_>>();
+        self.alloc(
+            ExprGenData::new(
+                self.alloc(
+                    ExprKindGenData::SetLiteral(
+                        self.alloc(
+                            SetLiteralGenData{
+                                values: self.alloc_slice(&values_dyn),
+                                ty: ty.as_dyn(),
+                            }
+                        )
+                    )
+                )
+            )
+        )
     }
 
     pub const fn mk_bool<'vir, const VALUE: bool>(&'vir self) -> ExprBool<'vir> {

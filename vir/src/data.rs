@@ -59,6 +59,8 @@ pub enum BinOpKind {
     Div,
     DivRational,
     Mod,
+    SetUnion,
+    SetIn,
     // ...
 }
 impl From<mir::BinOp> for BinOpKind {
@@ -156,6 +158,7 @@ impl<'vir, T: CompType> core::ops::Deref for TypeData<'vir, T> {
 }
 
 #[derive(PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
+#[serde(bound(deserialize = "'de: 'vir"))]
 pub enum TypeKind<'vir> {
     Int,
     Bool,
@@ -167,6 +170,7 @@ pub enum TypeKind<'vir> {
     // TODO: separate `TyParam` variant? `Domain` used for now
     Ref, // TODO: typed references ?
     Perm,
+    Set(#[serde(with = "crate::serde::serde_ref")] TypeDyn<'vir>),
     Unsupported(UnsupportedType<'vir>),
 }
 
@@ -303,3 +307,4 @@ pub type TriggerData<'vir> = crate::gendata::TriggerGenData<'vir, !, !>;
 pub type UnOpData<'vir> = crate::gendata::UnOpGenData<'vir, !, !>;
 pub type UnfoldingData<'vir> = crate::gendata::UnfoldingGenData<'vir, !, !>;
 pub type WandData<'vir> = crate::gendata::WandGenData<'vir, !, !>;
+pub type SetLiteralData<'vir> = crate::gendata::SetLiteralGenData<'vir, !, !>;

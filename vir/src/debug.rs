@@ -68,6 +68,8 @@ impl<'vir, Curr, Next> Debug for BinOpGenData<'vir, Curr, Next> {
                 BinOpKind::Div => "\\",
                 BinOpKind::DivRational => "/",
                 BinOpKind::Mod => "%",
+                BinOpKind::SetUnion => "union",
+                BinOpKind::SetIn => "in"
             }
         )?;
         self.rhs.fmt(f)?;
@@ -167,6 +169,7 @@ impl<'vir, Curr, Next> Debug for ExprKindGenData<'vir, Curr, Next> {
             Self::UnOp(e) => e.fmt(f),
             Self::Unfolding(e) => e.fmt(f),
             Self::Todo(e) => write!(f, "{}", e),
+            Self::SetLiteral(e) => e.fmt(f),
         }
     }
 }
@@ -332,6 +335,14 @@ impl<'vir, Curr, Next> Debug for PredicateAppGenData<'vir, Curr, Next> {
     }
 }
 
+impl<'vir, Curr, Next> Debug for SetLiteralGenData<'vir, Curr, Next> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "Set(")?;
+        fmt_comma_sep(f, self.values)?;
+        write!(f, ")")
+    }
+}
+
 impl<'vir, Curr, Next> Debug for StmtGenData<'vir, Curr, Next> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         if let Some(span) = self.span {
@@ -488,6 +499,7 @@ impl<'vir> Debug for TypeKind<'vir> {
             }
             Self::Ref => write!(f, "Ref"),
             Self::Perm => write!(f, "Perm"),
+            Self::Set(t) => write!(f, "Set[{:?}]", t),
             Self::Unsupported(u) => u.fmt(f),
         }
     }

@@ -47,3 +47,4 @@ pub type TriggerGen<'vir, Curr, Next> = &'vir crate::gendata::TriggerGenData<'vi
 pub type UnOpGen<'vir, Curr, Next> = &'vir crate::gendata::UnOpGenData<'vir, Curr, Next>;
 pub type UnfoldingGen<'vir, Curr, Next> = &'vir crate::gendata::UnfoldingGenData<'vir, Curr, Next>;
 pub type WandGen<'vir, Curr, Next> = &'vir crate::gendata::WandGenData<'vir, Curr, Next>;
+pub type SetLiteralGen<'vir, Curr, Next> = &'vir crate::gendata::SetLiteralGenData<'vir, Curr, Next>;

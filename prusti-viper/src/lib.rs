@@ -193,6 +193,8 @@ impl<'vir, 'v> ToViper<'vir, 'v> for vir::BinOp<'vir> {
             vir::BinOpKind::DivRational => ctx.ast.perm_div(lhs, rhs), // TODO: position
             vir::BinOpKind::Mod => ctx.ast.mod_with_pos(lhs, rhs, pos),
             vir::BinOpKind::Implies => ctx.ast.implies_with_pos(lhs, rhs, pos),
+            vir::BinOpKind::SetUnion => ctx.ast.any_set_union(lhs, rhs),
+            vir::BinOpKind::SetIn => ctx.ast.any_set_contains(lhs, rhs),
         }
     }
 }
@@ -332,6 +334,7 @@ impl<'vir, 'v, T: vir::CompType> ToViper<'vir, 'v> for vir::Expr<'vir, T> {
             vir::ExprKindData::Result(ty) => ctx
                 .ast
                 .result_with_pos(ty.to_viper_no_pos(ctx), ctx.span_to_pos(self.span)),
+            vir::ExprKindData::SetLiteral(v) => v.to_viper_with_span(ctx, self.span),
             vir::ExprKindData::Ternary(v) => v.to_viper_with_span(ctx, self.span),
             vir::ExprKindData::Unfolding(v) => v.to_viper_with_span(ctx, self.span),
             vir::ExprKindData::UnOp(v) => v.to_viper_with_span(ctx, self.span),
@@ -796,6 +799,19 @@ impl<'vir, 'v> ToViperVec<'vir, 'v> for vir::TerminatorStmt<'vir> {
     }
 }
 
+impl<'vir, 'v> ToViper<'vir, 'v> for vir::SetLiteral<'vir> {
+    type Output = viper::Expr<'v>;
+    fn to_viper(&self, ctx: &ToViperContext<'vir, 'v>, _pos: Position) -> Self::Output {
+        ctx.ast.explicit_set(
+            &self
+                .values
+                .iter()
+                .map(|v| v.to_viper_no_pos(ctx))
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
 impl<'vir, 'v> ToViper<'vir, 'v> for vir::Ternary<'vir> {
     type Output = viper::Expr<'v>;
     // `pos` coming from the parent `Expr` is used
@@ -825,7 +841,7 @@ impl<'vir, 'v> ToViper<'vir, 'v> for vir::Trigger<'vir> {
 
 impl<'vir, 'v, T: CompType> ToViper<'vir, 'v> for vir::Type<'vir, T> {
     type Output = viper::Type<'v>;
-    fn to_viper(&self, ctx: &ToViperContext<'vir, 'v>, _pos: Position) -> Self::Output {
+    fn to_viper(&self, ctx: &ToViperContext<'vir, 'v>, pos: Position) -> Self::Output {
         match self.kind() {
             vir::TypeKind::Int => ctx.ast.int_type(),
             vir::TypeKind::Bool => ctx.ast.bool_type(),
@@ -859,6 +875,7 @@ impl<'vir, 'v, T: CompType> ToViper<'vir, 'v> for vir::Type<'vir, T> {
             vir::TypeKind::Perm => ctx.ast.perm_type(),
             //vir::TypeData::Predicate, // The type of a predicate application
             //vir::TypeData::Unsupported(UnsupportedType<'vir>)
+            vir::TypeKind::Set(t) => ctx.ast.set_type(t.to_viper(ctx, pos)),
             other => unimplemented!("{:?}", other),
         }
     }

@@ -1,5 +1,5 @@
 use sealed::sealed;
-use std::hash::Hash;
+use std::{hash::Hash, marker::PhantomData};
 
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +103,24 @@ impl_exp_type!(TyVal[TYPE_TYVAL = Domain("Type", &[])] => Dyn, "The type domain 
 impl_exp_type!(Prim => Dyn, TypeKind::Bool | TypeKind::Int | TypeKind::Perm | TypeKind::Ref, "Represents any primitive Viper type");
 impl_exp_type!(Snap => Dyn, TypeKind::Domain(name, ..) if name.starts_with("s_"), "A Prusti snapshot type, either concrete or generic");
 impl_exp_type!(Dyn, TypeKind::Unsupported(..) => false, "Represents a dynamically typed value");
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Set<T: CompType>{
+    _phantom_data: PhantomData<T>
+}
+
+#[sealed]
+impl<T: CompType> CompType for Set<T>{
+    fn check(ty: Type<impl CompType>){
+        match **ty{
+            TypeKind::Set(inner) => T::check(inner),
+            _ => crate::typecheck_error!("Expected type `Set[??]` but got `{ty:?}`") //TODO: change this to indicate the type expected in the set
+        }
+    }
+}
+
+unsafe impl<T: CompType> TransmuteFrom<Set<T>> for Dyn{}
 
 #[macro_export]
 macro_rules! typecheck_error {
